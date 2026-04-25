@@ -174,6 +174,11 @@ python scripts/train.py --config configs/bi_mamba_55m.yaml \
     --resume runs/bi_mamba_55m/latest.pt
 ```
 
+**Early stopping** (mặc định bật): nếu `ema_val_loss` (hoặc `val_loss` khi
+`ema=False`) không cải thiện qua `early_stopping_patience=10` lần eval liên
+tiếp (≈ 20K steps với `eval_every=2000`), training tự dừng và lưu checkpoint
+cuối. Set `early_stopping_patience: 0` trong config để tắt.
+
 ### 5.4. Best / Average / EMA checkpoint (boost BLEU "miễn phí")
 
 Trainer ghi nhiều checkpoint khác nhau:

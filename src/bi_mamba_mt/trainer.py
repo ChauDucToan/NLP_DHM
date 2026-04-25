@@ -82,6 +82,11 @@ class TrainConfig:
     # 0.9990 ≈ effective window of 1000 steps; 0.9999 ≈ 10000 steps.
     ema: bool = True
     ema_decay: float = 0.9990
+    # Early stopping. Monitors ``ema_val_loss`` when EMA is enabled (smoother),
+    # otherwise ``val_loss``. ``patience`` counts evaluations (each eval step
+    # = one tick) without improvement before stopping. Set to 0 to disable.
+    early_stopping_patience: int = 10
+    early_stopping_min_delta: float = 0.0
 
 
 class EMA:
@@ -186,6 +191,12 @@ def train(
 
     best_val_loss: float = float("inf")
     best_ema_val_loss: float = float("inf")
+    # Early stopping bookkeeping. Counts evaluations since the monitored
+    # metric last improved by at least ``min_delta``.
+    es_metric_name = "ema_val_loss" if cfg.ema else "val_loss"
+    es_best: float = float("inf")
+    es_stale: int = 0
+    early_stop = False
 
     step = 0
     model.train()
@@ -195,7 +206,7 @@ def train(
     optimizer.zero_grad(set_to_none=True)
 
     train_iter = _infinite(train_loader)
-    while step < cfg.max_steps:
+    while step < cfg.max_steps and not early_stop:
         batch = next(train_iter)
         src = batch["src"].to(device, non_blocking=True)
         tgt_in = batch["tgt_in"].to(device, non_blocking=True)
@@ -308,9 +319,30 @@ def train(
                 )
             if log_callback is not None:
                 log_callback(log)
+
+            # Early stopping check.
+            if cfg.early_stopping_patience and cfg.early_stopping_patience > 0:
+                metric_val = log.get(es_metric_name, val_loss)
+                if metric_val < es_best - cfg.early_stopping_min_delta:
+                    es_best = metric_val
+                    es_stale = 0
+                else:
+                    es_stale += 1
+                    tqdm.write(
+                        f"  early-stop: no improvement on {es_metric_name} for "
+                        f"{es_stale}/{cfg.early_stopping_patience} eval(s) "
+                        f"(best {es_best:.4f})"
+                    )
+                    if es_stale >= cfg.early_stopping_patience:
+                        tqdm.write(
+                            f"  early-stop: triggered at step {step} "
+                            f"(no {es_metric_name} improvement for "
+                            f"{cfg.early_stopping_patience} evals). Stopping."
+                        )
+                        early_stop = True
             model.train()
 
-        if step % cfg.save_every == 0 or step == cfg.max_steps:
+        if step % cfg.save_every == 0 or step == cfg.max_steps or early_stop:
             ckpt_path = out_dir / f"checkpoint_step{step}.pt"
             payload = {
                 "model": model.state_dict(),
