@@ -1,0 +1,83 @@
+# Bi-Mamba 55M — Chinese↔Vietnamese translation.
+#
+# Parameter budget (~55M with the defaults below):
+#   embedding (shared, tied with lm_head) : 16,000 × 512   ≈  8.2M
+#   encoder (5 × bi-mamba + ffn @ d_model=512)             ≈ 23.0M
+#   decoder (5 × mamba + cross-attn + ffn)                 ≈ 23.4M
+#   final norms + biases                                   ≈   0M
+#   total                                                  ≈ 54.6M
+
+model:
+  vocab_size: 16000          # shared SentencePiece BPE for zh + vi + special tokens
+  d_model: 512
+  d_state: 16                # SSM state size
+  d_conv: 4                  # local conv kernel inside Mamba
+  expand: 2                  # inner expansion factor
+  n_encoder_layers: 5
+  n_decoder_layers: 5
+  d_ff: 1280                 # FFN inner = 2.5 * d_model (keeps total ≈ 55M params)
+  n_cross_attn_heads: 8
+  dropout: 0.1
+  tie_embeddings: true       # tie input embedding with lm_head
+  max_src_len: 256
+  max_tgt_len: 256
+  pad_id: 0
+  bos_id: 1
+  eos_id: 2
+  unk_id: 3
+  # Direction tag tokens (prepended to the source so one model can do both directions).
+  zh2vi_id: 4                # <2vi>
+  vi2zh_id: 5                # <2zh>
+
+tokenizer:
+  type: sentencepiece
+  model_type: bpe
+  vocab_size: 16000
+  character_coverage: 0.9995
+  # Reserve first 6 ids for: <pad> <bos> <eos> <unk> <2vi> <2zh>
+  user_defined_symbols: ["<2vi>", "<2zh>"]
+  # Note: <pad>, <bos>, <eos>, <unk> are passed via SP control flags.
+
+data:
+  dataset: "Helsinki-NLP/opus-100"
+  config: "vi-zh"            # opus-100 zh-vi pair (key is "vi-zh")
+  src_lang_key: "zh"         # in opus-100, translation dict has "zh" and "vi" keys
+  tgt_lang_key: "vi"
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  tokenizer_dir: "data/tokenizer"
+  # Subsample for fast Colab runs. Set null for full corpus.
+  max_train_pairs: 200000
+  max_valid_pairs: 2000
+  max_test_pairs: 2000
+  min_len: 1
+  max_len: 250                # in tokens (after SP); pairs longer than this are filtered
+  bidirectional: true         # add both zh→vi and vi→zh examples (doubles training set)
+  seed: 42
+
+train:
+  output_dir: "runs/bi_mamba_55m"
+  batch_size: 64
+  grad_accum_steps: 1
+  max_steps: 60000           # ~ a few epochs over 400k bi-direction pairs at bs=64
+  warmup_steps: 2000
+  lr: 5.0e-4
+  min_lr: 1.0e-5
+  weight_decay: 0.1
+  betas: [0.9, 0.98]
+  eps: 1.0e-9
+  grad_clip: 1.0
+  label_smoothing: 0.1
+  log_every: 50
+  eval_every: 2000
+  save_every: 2000
+  amp_dtype: "bf16"          # one of: "fp32", "fp16", "bf16"
+  num_workers: 2
+  pin_memory: true
+  seed: 42
+
+eval:
+  beam_size: 4
+  length_penalty: 1.0
+  max_decode_len: 256
+  num_samples: 1000          # how many test pairs to score per direction

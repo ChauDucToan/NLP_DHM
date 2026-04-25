@@ -1,0 +1,22 @@
+# Core
+torch>=2.1
+numpy>=1.24
+pyyaml>=6.0
+tqdm>=4.65
+
+# Tokenization
+sentencepiece>=0.2.0
+
+# Data
+datasets>=2.18
+huggingface_hub>=0.20
+
+# Training
+einops>=0.7
+
+# Evaluation
+sacrebleu>=2.4
+
+# Optional (highly recommended on GPU): selective-scan CUDA kernels.
+# Install separately on Colab/GPU: pip install mamba-ssm causal-conv1d
+# The repo also ships a pure-PyTorch fallback so it runs on CPU without these.

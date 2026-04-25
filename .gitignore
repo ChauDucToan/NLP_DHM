@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.env
+
+# Data + checkpoints
+data/raw/
+data/processed/
+data/cache/
+runs/
+checkpoints/
+*.pt
+*.bin
+*.model
+*.vocab
+
+# Notebook
+.ipynb_checkpoints/
+
+# Editor
+.idea/
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+wandb/

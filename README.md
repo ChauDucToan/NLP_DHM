@@ -1,0 +1,258 @@
+# Bi-Mamba 55M — AI dịch song ngữ Trung ↔ Việt
+
+Một mô hình dịch song ngữ **Trung → Việt** và **Việt → Trung** dùng kiến trúc
+**Bi-Mamba** (selective state-space model) với khoảng **55 triệu tham số**.
+Repo cung cấp **toàn bộ pipeline từ A đến Z** — tải dữ liệu, train tokenizer,
+train mô hình, đánh giá SacreBLEU, dịch demo — và chạy được:
+
+* **Trên Google Colab** end-to-end qua một notebook duy nhất:
+  [`notebooks/bi_mamba_zh_vi_colab.ipynb`](notebooks/bi_mamba_zh_vi_colab.ipynb)
+* **Trên máy local** (Linux + GPU CUDA hoặc CPU) bằng bộ scripts trong `scripts/`.
+
+> Cấu trúc Bi-Mamba được chốt từ phiên bản kế hoạch ban đầu trong
+> [Devin session devin-b0cfc7e955654b328d81290385130883](https://app.devin.ai/sessions/b0cfc7e955654b328d81290385130883).
+
+---
+
+## 1. Cấu trúc thư mục
+
+```
+bi-mamba-zh-vi/
+├── README.md                     # tài liệu này
+├── LICENSE                       # MIT
+├── pyproject.toml                # đóng gói package bi_mamba_mt
+├── requirements.txt              # phụ thuộc Python
+├── configs/
+│   └── bi_mamba_55m.yaml         # config 55M (model + tokenizer + data + train + eval)
+├── data/                         # nơi script ghi dữ liệu (đã .gitignore)
+│   └── .gitkeep
+├── notebooks/
+│   └── bi_mamba_zh_vi_colab.ipynb  # train end-to-end trên Colab
+├── scripts/
+│   ├── prepare_data.py           # tải + lọc + chia split
+│   ├── train_tokenizer.py        # train SentencePiece BPE (chia sẻ zh+vi)
+│   ├── train.py                  # vòng lặp train chính
+│   ├── evaluate.py               # SacreBLEU + chrF cả hai chiều
+│   └── translate.py              # CLI dịch (single / batch)
+├── src/
+│   └── bi_mamba_mt/              # package Python
+│       ├── __init__.py
+│       ├── model.py              # BiMambaTranslator (encoder + decoder)
+│       ├── tokenizer.py          # SentencePiece + special tokens
+│       ├── data.py               # Dataset, Collator, JSONL helpers
+│       ├── trainer.py            # train loop, optimizer, AMP, lr schedule
+│       ├── translate.py          # encode → generate → decode
+│       ├── evaluator.py          # SacreBLEU/chrF
+│       ├── utils.py              # YAML, seed, AMP dtype, device
+│       └── modules/
+│           ├── mamba_block.py    # Mamba selective SSM (CUDA fast path + PyTorch fallback)
+│           ├── bi_mamba.py       # Bi-Mamba (forward + reversed)
+│           ├── cross_attention.py
+│           └── decoder_block.py
+└── tests/
+    ├── test_model.py
+    └── test_tokenizer.py
+```
+
+---
+
+## 2. Kiến trúc Bi-Mamba (~55M tham số)
+
+| Thành phần                     | Kích thước                              |
+|--------------------------------|------------------------------------------|
+| Vocab (SentencePiece BPE)      | 16 000 (chia sẻ zh + vi)                 |
+| `d_model`                      | 512                                      |
+| Encoder                        | 5 × **Bi-Mamba block** + FFN(1280)       |
+| Decoder                        | 5 × **Mamba (causal) + Cross-attn(8 heads) + FFN(1280)** |
+| `d_state` / `d_conv` / expand  | 16 / 4 / 2                               |
+| Tổng tham số                   | **≈ 54.6 M** (tied input + lm_head)      |
+
+* **Encoder Bi-Mamba**: tại mỗi block ta chạy Mamba xuôi và Mamba ngược (trên
+  chuỗi đảo) rồi tổng hợp tuyến tính → ngữ cảnh hai chiều.
+* **Decoder**: Mamba causal cho self-attention + multi-head cross-attention
+  truy vấn ngữ cảnh nguồn → vẫn auto-regressive.
+* **Bi-direction qua direction tag**: token đầu nguồn là `<2vi>` hoặc `<2zh>`
+  → một mô hình duy nhất xử lý cả hai chiều dịch.
+
+Xem `configs/bi_mamba_55m.yaml` để biết toàn bộ siêu tham số và `src/bi_mamba_mt/model.py`
+cho code.
+
+---
+
+## 3. Dataset
+
+Mặc định dùng [Helsinki-NLP/opus-100](https://huggingface.co/datasets/Helsinki-NLP/opus-100) (config `vi-zh`, ~1M cặp).
+Bạn có thể:
+
+* Subsample để train nhanh trên Colab (`--max-train-pairs 200000`).
+* Dùng dataset riêng dạng JSONL `{"zh": "…", "vi": "…"}` bằng cờ
+  `--custom-jsonl path.jsonl`.
+* Bổ sung VLSP / OpenSubtitles / WikiMatrix bằng cách prepend file của bạn vào
+  `data/processed/train.jsonl` rồi train tokenizer lại.
+
+---
+
+## 4. Cài đặt local
+
+```bash
+git clone https://github.com/<user>/bi-mamba-zh-vi.git
+cd bi-mamba-zh-vi
+python -m venv .venv && source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+
+# (Khuyên dùng nếu có GPU CUDA) — kernel selective-scan + causal-conv1d:
+pip install causal-conv1d mamba-ssm
+```
+
+> Nếu không cài được `mamba-ssm` (vd. CPU thuần, hoặc CUDA không tương thích),
+> repo có **fallback PyTorch thuần** trong `mamba_block.py` — vẫn hoạt động
+> đúng nhưng chậm hơn 5–10×.
+
+Cài thêm test runner (tuỳ chọn):
+
+```bash
+pip install pytest
+pytest tests/ -v
+```
+
+---
+
+## 5. Train trên local — pipeline đầy đủ
+
+### 5.1. Chuẩn bị dữ liệu
+
+```bash
+python scripts/prepare_data.py --config configs/bi_mamba_55m.yaml
+```
+
+Kết quả:
+
+```
+data/processed/train.jsonl
+data/processed/valid.jsonl
+data/processed/test.jsonl
+```
+
+Tham số hữu ích:
+
+* `--max-train-pairs 200000` — subsample tập train.
+* `--custom-jsonl my.jsonl` — dùng dataset riêng (sẽ tự chia 98/1/1).
+* `--dataset Helsinki-NLP/opus-100 --dataset-config vi-zh` — đổi dataset.
+
+### 5.2. Train tokenizer (SentencePiece BPE chung)
+
+```bash
+python scripts/train_tokenizer.py --config configs/bi_mamba_55m.yaml
+```
+
+Output: `data/tokenizer/spm.model`, `spm.vocab`.
+
+### 5.3. Train mô hình
+
+```bash
+python scripts/train.py --config configs/bi_mamba_55m.yaml
+```
+
+Trong quá trình train sẽ in `loss`, `lr`, `tok/s` mỗi `log_every` step. Mỗi
+`save_every` step sẽ lưu `runs/bi_mamba_55m/checkpoint_step{N}.pt` và
+`runs/bi_mamba_55m/latest.pt`.
+
+Resume:
+
+```bash
+python scripts/train.py --config configs/bi_mamba_55m.yaml \
+    --resume runs/bi_mamba_55m/latest.pt
+```
+
+### 5.4. Đánh giá SacreBLEU + chrF
+
+```bash
+python scripts/evaluate.py --config configs/bi_mamba_55m.yaml --num-samples 1000 --beam-size 4
+```
+
+Output ví dụ:
+
+```
+[zh2vi] n=1000 BLEU=27.34 chrF=49.81
+[vi2zh] n=1000 BLEU=24.06 chrF=22.97
+```
+
+### 5.5. Dịch
+
+```bash
+# Một câu
+python scripts/translate.py --config configs/bi_mamba_55m.yaml --direction zh2vi --text "你好，世界！"
+
+# File (mỗi dòng một câu)
+python scripts/translate.py --config configs/bi_mamba_55m.yaml --direction vi2zh \
+    --input my_vi.txt --output my_zh.txt --beam-size 4
+```
+
+---
+
+## 6. Train end-to-end trên Google Colab
+
+Mở [`notebooks/bi_mamba_zh_vi_colab.ipynb`](notebooks/bi_mamba_zh_vi_colab.ipynb) — chỉ cần chạy
+tuần tự các ô. Notebook sẽ:
+
+1. Mount Drive (tuỳ chọn).
+2. Clone repo.
+3. Cài deps + (cố gắng) cài `mamba-ssm`/`causal-conv1d`.
+4. Tải opus-100 zh-vi.
+5. Train tokenizer.
+6. Train mô hình (mặc định 200K cặp × 30K steps trên T4 ≈ 1.5–2 giờ).
+7. Đánh giá BLEU/chrF cả hai chiều.
+8. Demo dịch một số câu mẫu.
+9. Lưu checkpoint sang Drive.
+
+---
+
+## 7. Tham số ước tính
+
+* **Thời gian train (T4, AMP bf16, batch 32, 30K steps, 200K cặp):** ~ 1.5–2 giờ.
+* **Thời gian train (A100, batch 128, 60K steps, 1M cặp):** ~ 3–5 giờ.
+* **VRAM:** ~ 6–8 GB ở batch 32 / max_len 256.
+* **BLEU dự kiến** (200K cặp, 30K steps): zh → vi 18–24, vi → zh 16–22.
+  Với toàn corpus + 60K steps có thể đạt 26–32 / 24–30.
+
+---
+
+## 8. Tuỳ biến
+
+* **Đổi kích thước mô hình:** chỉnh `d_model`, `n_encoder_layers`, `n_decoder_layers`,
+  `d_ff`, `expand` trong `configs/bi_mamba_55m.yaml`. Chạy lại training là đủ.
+* **Thêm dữ liệu của bạn:** đặt JSONL `{zh, vi}` của bạn rồi
+  `prepare_data.py --custom-jsonl ...`.
+* **Tách monolingual data để pre-train decoder:** mở rộng `data.py` để hỗ trợ
+  monolingual nếu cần.
+* **Dùng kernel CUDA chính chủ:** cài `mamba-ssm` + `causal-conv1d`. Repo tự
+  detect và switch sang fast-path.
+
+---
+
+## 9. Tests
+
+```bash
+pytest tests/ -v
+```
+
+* `tests/test_model.py` — kiểm tra forward, backward, sự nhất quán giữa
+  full-sequence scan và step-by-step decode, và greedy generate.
+* `tests/test_tokenizer.py` — train SentencePiece trên một mini corpus và
+  kiểm tra special tokens + roundtrip.
+
+---
+
+## 10. Trích dẫn / Tham khảo
+
+* Gu & Dao, **Mamba: Linear-Time Sequence Modeling with Selective State Spaces**, 2023.
+  <https://arxiv.org/abs/2312.00752>
+* OPUS-100: <https://huggingface.co/datasets/Helsinki-NLP/opus-100>
+* `mamba-ssm`: <https://github.com/state-spaces/mamba>
+
+---
+
+## License
+
+MIT — xem [LICENSE](LICENSE).
