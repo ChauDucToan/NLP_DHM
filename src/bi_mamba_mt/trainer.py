@@ -184,6 +184,9 @@ def train(
 
     ema = EMA(model, decay=cfg.ema_decay) if cfg.ema else None
 
+    best_val_loss: float = float("inf")
+    best_ema_val_loss: float = float("inf")
+
     step = 0
     model.train()
     pbar = tqdm(total=cfg.max_steps, desc="train", dynamic_ncols=True)
@@ -254,16 +257,55 @@ def train(
         if val_loader is not None and step % cfg.eval_every == 0:
             val_loss = evaluate_loss(model, val_loader, device, dtype=dtype)
             log = {"step": step, "val_loss": val_loss}
+
+            # Save best raw-weights checkpoint by val_loss.
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_payload = {
+                    "model": model.state_dict(),
+                    "model_cfg": vars(model.cfg),
+                    "step": step,
+                    "val_loss": val_loss,
+                    "is_best": True,
+                }
+                if ema is not None:
+                    best_payload["ema"] = ema.state_dict()
+                torch.save(best_payload, out_dir / "best.pt")
+                tqdm.write(
+                    f"  -> new best val_loss {val_loss:.4f} @ step {step} "
+                    f"(saved best.pt)"
+                )
+
             if ema is not None:
                 ema.apply(model)
                 ema_val_loss = evaluate_loss(model, val_loader, device, dtype=dtype)
+                # Save best EMA-weights checkpoint by ema_val_loss while EMA is
+                # still swapped into the model.
+                if ema_val_loss < best_ema_val_loss:
+                    best_ema_val_loss = ema_val_loss
+                    best_ema_payload = {
+                        "model": model.state_dict(),
+                        "model_cfg": vars(model.cfg),
+                        "step": step,
+                        "ema_val_loss": ema_val_loss,
+                        "is_ema": True,
+                        "is_best": True,
+                    }
+                    torch.save(best_ema_payload, out_dir / "best_ema.pt")
+                    tqdm.write(
+                        f"  -> new best ema_val_loss {ema_val_loss:.4f} @ step {step} "
+                        f"(saved best_ema.pt)"
+                    )
                 ema.restore(model)
                 log["ema_val_loss"] = ema_val_loss
                 tqdm.write(
-                    f"step {step} | val_loss {val_loss:.3f} | ema_val_loss {ema_val_loss:.3f}"
+                    f"step {step} | val_loss {val_loss:.3f} (best {best_val_loss:.3f}) | "
+                    f"ema_val_loss {ema_val_loss:.3f} (best {best_ema_val_loss:.3f})"
                 )
             else:
-                tqdm.write(f"step {step} | val_loss {val_loss:.3f}")
+                tqdm.write(
+                    f"step {step} | val_loss {val_loss:.3f} (best {best_val_loss:.3f})"
+                )
             if log_callback is not None:
                 log_callback(log)
             model.train()

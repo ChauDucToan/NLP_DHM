@@ -174,26 +174,32 @@ python scripts/train.py --config configs/bi_mamba_55m.yaml \
     --resume runs/bi_mamba_55m/latest.pt
 ```
 
-### 5.4. Average + EMA checkpoint (boost BLEU "miễn phí")
+### 5.4. Best / Average / EMA checkpoint (boost BLEU "miễn phí")
 
-Trainer đã maintain Exponential Moving Average của weights (`runs/.../latest_ema.pt`)
-trong suốt quá trình train. Trước khi đánh giá, hãy thêm bước trung bình
-**5 checkpoint cuối** (Polyak averaging) để smooth out noise của step cuối:
+Trainer ghi nhiều checkpoint khác nhau:
+
+* `latest.pt` / `latest_ema.pt` — weights ở step cuối cùng.
+* `best.pt` — weights ở step có **`val_loss` thấp nhất**.
+* `best_ema.pt` — EMA weights ở step có **`ema_val_loss` thấp nhất**.
+
+Để ép thêm BLEU mà không cần train tiếp, average **5 checkpoint cuối**
+(Polyak averaging) — cả raw và EMA:
 
 ```bash
 python scripts/avg_ckpts.py --ckpts-dir runs/bi_mamba_55m --n 5
 python scripts/avg_ckpts.py --ckpts-dir runs/bi_mamba_55m --n 5 --ema
 ```
 
-Bốn checkpoint thường được so sánh: `latest.pt`, `latest_ema.pt`,
-`avg_last5.pt`, `avg_last5_ema.pt`. EMA + averaging cho +0.5–2 BLEU gần như
-miễn phí.
+Sáu checkpoint thường được so sánh: `latest.pt`, `latest_ema.pt`, `best.pt`,
+`best_ema.pt`, `avg_last5.pt`, `avg_last5_ema.pt`. Với run đủ dài thì
+`avg_last5_ema.pt` thường thắng; với run ngắn / overfit thì `best_ema.pt`
+thắng. EMA + averaging cho +0.5–2 BLEU gần như miễn phí.
 
 ### 5.5. Đánh giá SacreBLEU + chrF
 
 ```bash
 python scripts/evaluate.py --config configs/bi_mamba_55m.yaml \
-    --checkpoint runs/bi_mamba_55m/avg_last5_ema.pt --num-samples 1000
+    --checkpoint runs/bi_mamba_55m/best_ema.pt --num-samples 1000
 ```
 
 `length_penalty` được đọc từ config theo từng chiều
