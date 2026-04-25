@@ -7,10 +7,6 @@ tqdm>=4.65
 # Tokenization
 sentencepiece>=0.2.0
 
-# Data
-datasets>=2.18
-huggingface_hub>=0.20
-
 # Training
 einops>=0.7
 
