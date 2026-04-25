@@ -228,6 +228,12 @@ def main() -> None:
             script_check=script_check,
         )
 
+    # Per-source cap so a single noisy huge source (e.g. OpenSubtitles, ~1.5M
+    # pairs) cannot dominate the training mix. Pairs above the cap are
+    # randomly subsampled before joining the global pool.
+    raw_caps = data_cfg.get("max_pairs_per_source", {}) or {}
+    caps: dict[str, int] = {k: int(v) for k, v in raw_caps.items() if v}
+
     pairs: List[Pair] = []
     seen: set[tuple[str, str]] = set()  # for dedup
     n_dropped = 0
@@ -246,6 +252,8 @@ def main() -> None:
     else:
         source_keys = args.sources or PRESETS[args.preset]
         print(f"Preset: {args.preset}  sources: {source_keys}")
+        if caps:
+            print(f"Per-source caps: {caps}")
         for key in source_keys:
             if key not in SOURCES:
                 print(f"  WARNING: unknown source '{key}', skipping")
@@ -258,8 +266,9 @@ def main() -> None:
             except Exception as e:
                 print(f"  ERROR: download failed ({e}); skipping {key}")
                 continue
-            n_added = 0
+            cap = caps.get(key)
             n_src_dropped = 0
+            src_pairs: List[Pair] = []
             for p_ in iter_pairs_from_opus_zip(zip_path, src):
                 k = (p_.zh, p_.vi)
                 if k in seen:
@@ -268,12 +277,21 @@ def main() -> None:
                     n_src_dropped += 1
                     continue
                 seen.add(k)
-                pairs.append(p_)
-                n_added += 1
+                src_pairs.append(p_)
+            n_before_cap = len(src_pairs)
+            if cap and len(src_pairs) > cap:
+                rng.shuffle(src_pairs)
+                src_pairs = src_pairs[:cap]
+            pairs.extend(src_pairs)
             n_dropped += n_src_dropped
+            cap_msg = (
+                f"  (capped from {n_before_cap:,} -> {len(src_pairs):,})"
+                if cap and n_before_cap > cap
+                else ""
+            )
             print(
-                f"  + {n_added:,} new pairs  (dropped by filter: {n_src_dropped:,};  "
-                f"running total: {len(pairs):,})"
+                f"  + {len(src_pairs):,} new pairs{cap_msg}  "
+                f"(dropped by filter: {n_src_dropped:,};  running total: {len(pairs):,})"
             )
     if n_dropped:
         print(f"\nTotal pairs dropped by filter: {n_dropped:,}")
