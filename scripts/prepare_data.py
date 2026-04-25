@@ -37,7 +37,7 @@ from urllib.request import Request, urlopen
 # Make ``src/`` importable when running as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from bi_mamba_mt.data import Pair, basic_clean, length_ok, write_jsonl
+from bi_mamba_mt.data import Pair, basic_clean, pair_ok, write_jsonl
 from bi_mamba_mt.utils import load_yaml
 
 
@@ -208,9 +208,29 @@ def main() -> None:
 
     min_len = int(data_cfg.get("min_len", 1))
     max_chars = int(data_cfg.get("max_len", 250)) * 4  # rough char limit
+    script_check = bool(data_cfg.get("script_check", True))
+    min_zh_vi_ratio = float(data_cfg.get("min_zh_vi_ratio", 0.10))
+    max_zh_vi_ratio = float(data_cfg.get("max_zh_vi_ratio", 1.20))
+    print(
+        f"Filter: min_len={min_len} max_chars={max_chars} "
+        f"zh/vi ratio=[{min_zh_vi_ratio:.2f}, {max_zh_vi_ratio:.2f}] "
+        f"script_check={script_check}"
+    )
+
+    def _keep(zh: str, vi: str) -> bool:
+        return pair_ok(
+            zh,
+            vi,
+            min_len=min_len,
+            max_chars=max_chars,
+            min_zh_vi_ratio=min_zh_vi_ratio,
+            max_zh_vi_ratio=max_zh_vi_ratio,
+            script_check=script_check,
+        )
 
     pairs: List[Pair] = []
     seen: set[tuple[str, str]] = set()  # for dedup
+    n_dropped = 0
 
     if args.custom_jsonl:
         print(f"Reading custom JSONL: {args.custom_jsonl}")
@@ -218,9 +238,11 @@ def main() -> None:
             key = (p_.zh, p_.vi)
             if key in seen:
                 continue
-            if length_ok(p_.zh, p_.vi, min_len, max_chars):
-                seen.add(key)
-                pairs.append(p_)
+            if not _keep(p_.zh, p_.vi):
+                n_dropped += 1
+                continue
+            seen.add(key)
+            pairs.append(p_)
     else:
         source_keys = args.sources or PRESETS[args.preset]
         print(f"Preset: {args.preset}  sources: {source_keys}")
@@ -237,16 +259,24 @@ def main() -> None:
                 print(f"  ERROR: download failed ({e}); skipping {key}")
                 continue
             n_added = 0
+            n_src_dropped = 0
             for p_ in iter_pairs_from_opus_zip(zip_path, src):
                 k = (p_.zh, p_.vi)
                 if k in seen:
                     continue
-                if not length_ok(p_.zh, p_.vi, min_len, max_chars):
+                if not _keep(p_.zh, p_.vi):
+                    n_src_dropped += 1
                     continue
                 seen.add(k)
                 pairs.append(p_)
                 n_added += 1
-            print(f"  + {n_added:,} new pairs (total so far: {len(pairs):,})")
+            n_dropped += n_src_dropped
+            print(
+                f"  + {n_added:,} new pairs  (dropped by filter: {n_src_dropped:,};  "
+                f"running total: {len(pairs):,})"
+            )
+    if n_dropped:
+        print(f"\nTotal pairs dropped by filter: {n_dropped:,}")
 
     if not pairs:
         raise SystemExit(

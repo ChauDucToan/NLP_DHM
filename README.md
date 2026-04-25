@@ -29,10 +29,11 @@ bi-mamba-zh-vi/
 ├── notebooks/
 │   └── bi_mamba_zh_vi_colab.ipynb  # train end-to-end trên Colab
 ├── scripts/
-│   ├── prepare_data.py           # tải + lọc + chia split
+│   ├── prepare_data.py           # tải + lọc + chia split (script-id + length filter)
 │   ├── train_tokenizer.py        # train SentencePiece BPE (chia sẻ zh+vi)
-│   ├── train.py                  # vòng lặp train chính
-│   ├── evaluate.py               # SacreBLEU + chrF cả hai chiều
+│   ├── train.py                  # vòng lặp train chính (EMA + length-bucket sampler)
+│   ├── avg_ckpts.py              # Polyak averaging của N checkpoint cuối
+│   ├── evaluate.py               # SacreBLEU + chrF cả hai chiều, per-direction LP
 │   └── translate.py              # CLI dịch (single / batch)
 ├── src/
 │   └── bi_mamba_mt/              # package Python
@@ -173,20 +174,44 @@ python scripts/train.py --config configs/bi_mamba_55m.yaml \
     --resume runs/bi_mamba_55m/latest.pt
 ```
 
-### 5.4. Đánh giá SacreBLEU + chrF
+**Early stopping** (mặc định bật): nếu `ema_val_loss` (hoặc `val_loss` khi
+`ema=False`) không cải thiện qua `early_stopping_patience=10` lần eval liên
+tiếp (≈ 20K steps với `eval_every=2000`), training tự dừng và lưu checkpoint
+cuối. Set `early_stopping_patience: 0` trong config để tắt.
+
+### 5.4. Best / Average / EMA checkpoint (boost BLEU "miễn phí")
+
+Trainer ghi nhiều checkpoint khác nhau:
+
+* `latest.pt` / `latest_ema.pt` — weights ở step cuối cùng.
+* `best.pt` — weights ở step có **`val_loss` thấp nhất**.
+* `best_ema.pt` — EMA weights ở step có **`ema_val_loss` thấp nhất**.
+
+Để ép thêm BLEU mà không cần train tiếp, average **5 checkpoint cuối**
+(Polyak averaging) — cả raw và EMA:
 
 ```bash
-python scripts/evaluate.py --config configs/bi_mamba_55m.yaml --num-samples 1000 --beam-size 4
+python scripts/avg_ckpts.py --ckpts-dir runs/bi_mamba_55m --n 5
+python scripts/avg_ckpts.py --ckpts-dir runs/bi_mamba_55m --n 5 --ema
 ```
 
-Output ví dụ:
+Sáu checkpoint thường được so sánh: `latest.pt`, `latest_ema.pt`, `best.pt`,
+`best_ema.pt`, `avg_last5.pt`, `avg_last5_ema.pt`. Với run đủ dài thì
+`avg_last5_ema.pt` thường thắng; với run ngắn / overfit thì `best_ema.pt`
+thắng. EMA + averaging cho +0.5–2 BLEU gần như miễn phí.
 
-```
-[zh2vi] n=1000 BLEU=27.34 chrF=49.81
-[vi2zh] n=1000 BLEU=24.06 chrF=22.97
+### 5.5. Đánh giá SacreBLEU + chrF
+
+```bash
+python scripts/evaluate.py --config configs/bi_mamba_55m.yaml \
+    --checkpoint runs/bi_mamba_55m/best_ema.pt --num-samples 1000
 ```
 
-### 5.5. Dịch
+`length_penalty` được đọc từ config theo từng chiều
+(`zh2vi: 1.20`, `vi2zh: 0.80` mặc định). Override bằng
+`--length-penalty 1.0` nếu muốn.
+
+### 5.6. Dịch
 
 ```bash
 # Một câu

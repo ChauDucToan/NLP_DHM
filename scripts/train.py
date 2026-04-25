@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from bi_mamba_mt.data import Collator, TranslationDataset, read_jsonl
+from bi_mamba_mt.data import Collator, SortPoolBatchSampler, TranslationDataset, read_jsonl
 from bi_mamba_mt.model import BiMambaTranslator, ModelConfig
 from bi_mamba_mt.tokenizer import Tokenizer
 from bi_mamba_mt.trainer import TrainConfig, train
@@ -67,15 +67,38 @@ def main() -> None:
     )
     collate = Collator(pad_id=int(cfg["model"]["pad_id"]))
 
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=int(cfg["train"]["batch_size"]),
-        shuffle=True,
-        num_workers=int(cfg["train"].get("num_workers", 2)),
-        pin_memory=bool(cfg["train"].get("pin_memory", True)) and device.type == "cuda",
-        collate_fn=collate,
-        drop_last=True,
-    )
+    bucket = bool(cfg["train"].get("length_bucket", True))
+    pool_factor = int(cfg["train"].get("bucket_pool_factor", 100))
+    if bucket:
+        print(
+            f"Using length-bucketed sampler "
+            f"(pool={pool_factor}*batch={int(cfg['train']['batch_size'])})"
+        )
+        train_sampler = SortPoolBatchSampler(
+            lengths=train_ds.bucket_lengths(),
+            batch_size=int(cfg["train"]["batch_size"]),
+            pool_factor=pool_factor,
+            shuffle=True,
+            drop_last=True,
+            seed=int(cfg["train"].get("seed", 42)),
+        )
+        train_loader = DataLoader(
+            train_ds,
+            batch_sampler=train_sampler,
+            num_workers=int(cfg["train"].get("num_workers", 2)),
+            pin_memory=bool(cfg["train"].get("pin_memory", True)) and device.type == "cuda",
+            collate_fn=collate,
+        )
+    else:
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=int(cfg["train"]["batch_size"]),
+            shuffle=True,
+            num_workers=int(cfg["train"].get("num_workers", 2)),
+            pin_memory=bool(cfg["train"].get("pin_memory", True)) and device.type == "cuda",
+            collate_fn=collate,
+            drop_last=True,
+        )
     valid_loader = DataLoader(
         valid_ds,
         batch_size=int(cfg["train"]["batch_size"]),

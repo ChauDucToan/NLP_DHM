@@ -1,14 +1,15 @@
-# Bi-Mamba 55M — Chinese↔Vietnamese translation.
+# Bi-Mamba — Chinese↔Vietnamese translation.
 #
-# Parameter budget (~55M with the defaults below):
-#   embedding (shared, tied with lm_head) : 16,000 × 512   ≈  8.2M
+# Default budget (~63M with vocab=32k):
+#   embedding (shared, tied with lm_head) : 32,000 × 512   ≈ 16.4M
 #   encoder (5 × bi-mamba + ffn @ d_model=512)             ≈ 23.0M
 #   decoder (5 × mamba + cross-attn + ffn)                 ≈ 23.4M
 #   final norms + biases                                   ≈   0M
-#   total                                                  ≈ 54.6M
+#   total                                                  ≈ 62.8M
+# (To stay at ~55M, keep vocab_size=16000.)
 
 model:
-  vocab_size: 16000          # shared SentencePiece BPE for zh + vi + special tokens
+  vocab_size: 32000          # shared SentencePiece BPE for zh + vi + special tokens
   d_model: 512
   d_state: 16                # SSM state size
   d_conv: 4                  # local conv kernel inside Mamba
@@ -32,7 +33,7 @@ model:
 tokenizer:
   type: sentencepiece
   model_type: bpe
-  vocab_size: 16000
+  vocab_size: 32000
   character_coverage: 0.9995
   # Reserve first 6 ids for: <pad> <bos> <eos> <unk> <2vi> <2zh>
   user_defined_symbols: ["<2vi>", "<2zh>"]
@@ -42,25 +43,32 @@ data:
   # Data source — direct download from OPUS (no HuggingFace dataset needed).
   # Pick a preset via `prepare_data.py --preset {tiny|small|medium|large}` or
   # override with `--sources ted2020 wikimatrix opensubtitles ...`.
-  preset: "small"             # tiny / small / medium / large
+  preset: "medium"            # tiny / small / medium / large
   raw_dir: "data/raw"
   processed_dir: "data/processed"
   tokenizer_dir: "data/tokenizer"
   # Subsample for fast Colab runs. Set null for full corpus.
-  max_train_pairs: 200000
+  max_train_pairs: 1500000
   max_valid_pairs: 2000
   max_test_pairs: 2000
   min_len: 1
   max_len: 250                # in tokens (after SP); pairs longer than this are filtered
   bidirectional: true         # add both zh→vi and vi→zh examples (doubles training set)
   seed: 42
+  # Strict per-language script filter (zh must be majority CJK; vi must be Latin).
+  # This kicks out the worst noise from WikiMatrix.
+  script_check: true
+  # zh-vi character-length ratio bounds. Empirically clean OPUS pairs sit at
+  # len(zh)/len(vi) ≈ 0.20–0.60 (vi has spaces + diacritics so it's longer).
+  min_zh_vi_ratio: 0.10
+  max_zh_vi_ratio: 1.20
 
 train:
   output_dir: "runs/bi_mamba_55m"
-  batch_size: 64
+  batch_size: 128
   grad_accum_steps: 1
-  max_steps: 60000           # ~ a few epochs over 400k bi-direction pairs at bs=64
-  warmup_steps: 2000
+  max_steps: 100000          # ~ a few epochs over 3M bi-direction pairs at bs=128
+  warmup_steps: 4000
   lr: 5.0e-4
   min_lr: 1.0e-5
   weight_decay: 0.1
@@ -72,12 +80,30 @@ train:
   eval_every: 2000
   save_every: 2000
   amp_dtype: "bf16"          # one of: "fp32", "fp16", "bf16"
-  num_workers: 2
+  num_workers: 4             # bump on machines with >4 cores; Colab has 8
   pin_memory: true
   seed: 42
+  # Length-bucketed batching: within each pool of pool_factor*batch_size items,
+  # sort by length and chop into batches; cuts padding waste 30–50%.
+  length_bucket: true
+  bucket_pool_factor: 100
+  # Exponential moving average of weights (used for EMA val-loss + eval).
+  ema: true
+  ema_decay: 0.9990
+  # Early stopping. Patience is in number of eval ticks (each eval_every steps).
+  # 10 ticks * eval_every=2000 = 20K steps without improvement -> stop.
+  # Set to 0 to disable.
+  early_stopping_patience: 10
+  early_stopping_min_delta: 0.0
 
 eval:
-  beam_size: 4
-  length_penalty: 1.0
+  beam_size: 6
+  # Per-direction length penalty. Vietnamese targets are ~3× longer in
+  # characters than Chinese targets, so a slightly higher LP for zh→vi keeps
+  # outputs from being too short, and a lower LP for vi→zh keeps zh outputs
+  # from being padded. Tune in [0.6, 1.4] on dev set.
+  length_penalty:
+    zh2vi: 1.20
+    vi2zh: 0.80
   max_decode_len: 256
   num_samples: 1000          # how many test pairs to score per direction

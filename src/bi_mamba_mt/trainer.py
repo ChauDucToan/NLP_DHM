@@ -78,6 +78,62 @@ class TrainConfig:
     eval_every: int = 2_000
     save_every: int = 2_000
     amp_dtype: str = "bf16"
+    # Exponential moving average of model weights for inference. Decay of
+    # 0.9990 ≈ effective window of 1000 steps; 0.9999 ≈ 10000 steps.
+    ema: bool = True
+    ema_decay: float = 0.9990
+    # Early stopping. Monitors ``ema_val_loss`` when EMA is enabled (smoother),
+    # otherwise ``val_loss``. ``patience`` counts evaluations (each eval step
+    # = one tick) without improvement before stopping. Set to 0 to disable.
+    early_stopping_patience: int = 10
+    early_stopping_min_delta: float = 0.0
+
+
+class EMA:
+    """Exponential moving average of model parameters.
+
+    Maintains a CPU/GPU copy of the model parameters that lags behind the
+    training weights, and can be temporarily swapped in for evaluation /
+    final checkpointing. EMA weights consistently give +0.3–1.0 BLEU on top
+    of the raw last-step weights for NMT.
+    """
+
+    def __init__(self, model: nn.Module, decay: float = 0.999) -> None:
+        self.decay = float(decay)
+        self.shadow: dict[str, torch.Tensor] = {}
+        self._backup: dict[str, torch.Tensor] = {}
+        for name, p in model.named_parameters():
+            if p.requires_grad:
+                self.shadow[name] = p.detach().clone()
+
+    @torch.no_grad()
+    def update(self, model: nn.Module) -> None:
+        d = self.decay
+        for name, p in model.named_parameters():
+            if p.requires_grad and name in self.shadow:
+                self.shadow[name].mul_(d).add_(p.detach(), alpha=1.0 - d)
+
+    def apply(self, model: nn.Module) -> None:
+        """Swap EMA weights into the model (remember to call ``restore`` after)."""
+        self._backup = {}
+        for name, p in model.named_parameters():
+            if p.requires_grad and name in self.shadow:
+                self._backup[name] = p.detach().clone()
+                p.data.copy_(self.shadow[name].data)
+
+    def restore(self, model: nn.Module) -> None:
+        for name, p in model.named_parameters():
+            if name in self._backup:
+                p.data.copy_(self._backup[name].data)
+        self._backup = {}
+
+    def state_dict(self) -> dict[str, torch.Tensor]:
+        return {k: v.detach().cpu() for k, v in self.shadow.items()}
+
+    def load_state_dict(self, sd: dict[str, torch.Tensor]) -> None:
+        for k, v in sd.items():
+            if k in self.shadow:
+                self.shadow[k].data.copy_(v.to(self.shadow[k].device))
 
 
 def label_smoothed_cross_entropy(
@@ -131,6 +187,17 @@ def train(
         else nullcontext()
     )
 
+    ema = EMA(model, decay=cfg.ema_decay) if cfg.ema else None
+
+    best_val_loss: float = float("inf")
+    best_ema_val_loss: float = float("inf")
+    # Early stopping bookkeeping. Counts evaluations since the monitored
+    # metric last improved by at least ``min_delta``.
+    es_metric_name = "ema_val_loss" if cfg.ema else "val_loss"
+    es_best: float = float("inf")
+    es_stale: int = 0
+    early_stop = False
+
     step = 0
     model.train()
     pbar = tqdm(total=cfg.max_steps, desc="train", dynamic_ncols=True)
@@ -139,7 +206,7 @@ def train(
     optimizer.zero_grad(set_to_none=True)
 
     train_iter = _infinite(train_loader)
-    while step < cfg.max_steps:
+    while step < cfg.max_steps and not early_stop:
         batch = next(train_iter)
         src = batch["src"].to(device, non_blocking=True)
         tgt_in = batch["tgt_in"].to(device, non_blocking=True)
@@ -178,6 +245,9 @@ def train(
             optimizer.step()
         optimizer.zero_grad(set_to_none=True)
 
+        if ema is not None:
+            ema.update(model)
+
         step += 1
         pbar.update(1)
 
@@ -197,30 +267,105 @@ def train(
 
         if val_loader is not None and step % cfg.eval_every == 0:
             val_loss = evaluate_loss(model, val_loader, device, dtype=dtype)
-            tqdm.write(f"step {step} | val_loss {val_loss:.3f}")
+            log = {"step": step, "val_loss": val_loss}
+
+            # Save best raw-weights checkpoint by val_loss.
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_payload = {
+                    "model": model.state_dict(),
+                    "model_cfg": vars(model.cfg),
+                    "step": step,
+                    "val_loss": val_loss,
+                    "is_best": True,
+                }
+                if ema is not None:
+                    best_payload["ema"] = ema.state_dict()
+                torch.save(best_payload, out_dir / "best.pt")
+                tqdm.write(
+                    f"  -> new best val_loss {val_loss:.4f} @ step {step} "
+                    f"(saved best.pt)"
+                )
+
+            if ema is not None:
+                ema.apply(model)
+                ema_val_loss = evaluate_loss(model, val_loader, device, dtype=dtype)
+                # Save best EMA-weights checkpoint by ema_val_loss while EMA is
+                # still swapped into the model.
+                if ema_val_loss < best_ema_val_loss:
+                    best_ema_val_loss = ema_val_loss
+                    best_ema_payload = {
+                        "model": model.state_dict(),
+                        "model_cfg": vars(model.cfg),
+                        "step": step,
+                        "ema_val_loss": ema_val_loss,
+                        "is_ema": True,
+                        "is_best": True,
+                    }
+                    torch.save(best_ema_payload, out_dir / "best_ema.pt")
+                    tqdm.write(
+                        f"  -> new best ema_val_loss {ema_val_loss:.4f} @ step {step} "
+                        f"(saved best_ema.pt)"
+                    )
+                ema.restore(model)
+                log["ema_val_loss"] = ema_val_loss
+                tqdm.write(
+                    f"step {step} | val_loss {val_loss:.3f} (best {best_val_loss:.3f}) | "
+                    f"ema_val_loss {ema_val_loss:.3f} (best {best_ema_val_loss:.3f})"
+                )
+            else:
+                tqdm.write(
+                    f"step {step} | val_loss {val_loss:.3f} (best {best_val_loss:.3f})"
+                )
             if log_callback is not None:
-                log_callback({"step": step, "val_loss": val_loss})
+                log_callback(log)
+
+            # Early stopping check.
+            if cfg.early_stopping_patience and cfg.early_stopping_patience > 0:
+                metric_val = log.get(es_metric_name, val_loss)
+                if metric_val < es_best - cfg.early_stopping_min_delta:
+                    es_best = metric_val
+                    es_stale = 0
+                else:
+                    es_stale += 1
+                    tqdm.write(
+                        f"  early-stop: no improvement on {es_metric_name} for "
+                        f"{es_stale}/{cfg.early_stopping_patience} eval(s) "
+                        f"(best {es_best:.4f})"
+                    )
+                    if es_stale >= cfg.early_stopping_patience:
+                        tqdm.write(
+                            f"  early-stop: triggered at step {step} "
+                            f"(no {es_metric_name} improvement for "
+                            f"{cfg.early_stopping_patience} evals). Stopping."
+                        )
+                        early_stop = True
             model.train()
 
-        if step % cfg.save_every == 0 or step == cfg.max_steps:
+        if step % cfg.save_every == 0 or step == cfg.max_steps or early_stop:
             ckpt_path = out_dir / f"checkpoint_step{step}.pt"
-            torch.save(
-                {
-                    "model": model.state_dict(),
-                    "model_cfg": vars(model.cfg),
-                    "step": step,
-                },
-                ckpt_path,
-            )
+            payload = {
+                "model": model.state_dict(),
+                "model_cfg": vars(model.cfg),
+                "step": step,
+            }
+            if ema is not None:
+                payload["ema"] = ema.state_dict()
+            torch.save(payload, ckpt_path)
             # Also keep a 'latest' alias
-            torch.save(
-                {
+            torch.save(payload, out_dir / "latest.pt")
+            # And keep a separate 'latest_ema' alias holding the EMA weights
+            # already swapped into the model state_dict for easy loading.
+            if ema is not None:
+                ema.apply(model)
+                ema_payload = {
                     "model": model.state_dict(),
                     "model_cfg": vars(model.cfg),
                     "step": step,
-                },
-                out_dir / "latest.pt",
-            )
+                    "is_ema": True,
+                }
+                torch.save(ema_payload, out_dir / "latest_ema.pt")
+                ema.restore(model)
     pbar.close()
 
 
