@@ -101,7 +101,10 @@ python -m venv .venv && source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 
-# (Khuyên dùng nếu có GPU CUDA) — kernel selective-scan + causal-conv1d:
+# (Khuyên dùng nếu có GPU CUDA) — kernel selective-scan + causal-conv1d.
+# `pip install` từ PyPI sẽ cố BUILD từ source và rất hay fail vì lệch ABI/CUDA;
+# thay vào đó dùng wheel prebuilt trên GitHub Releases (xem ô "3b" trong
+# notebook Colab). Trên local, đảm bảo `nvcc` và torch khớp rồi chạy:
 pip install causal-conv1d mamba-ssm
 ```
 
@@ -136,9 +139,14 @@ data/processed/test.jsonl
 
 Tham số hữu ích:
 
+* `--preset {tiny|small|medium|large}` — chọn bộ corpus OPUS:
+  * `tiny`   — TED2020 (~50 K, 1 MB)
+  * `small`  — TED2020 + WikiMatrix + bible-uedin (~200 K, 25 MB) — mặc định
+  * `medium` — small + OpenSubtitles vi-zh_cn (~3 M, 65 MB)
+  * `large`  — medium + NLLB (~30 M, 700 MB)
+* `--sources ted2020 wikimatrix opensubtitles` — danh sách nguồn tự chọn.
 * `--max-train-pairs 200000` — subsample tập train.
-* `--custom-jsonl my.jsonl` — dùng dataset riêng (sẽ tự chia 98/1/1).
-* `--dataset Helsinki-NLP/opus-100 --dataset-config vi-zh` — đổi dataset.
+* `--custom-jsonl my.jsonl` — dùng dataset riêng (mỗi dòng `{"zh": "...", "vi": "..."}`).
 
 ### 5.2. Train tokenizer (SentencePiece BPE chung)
 
@@ -198,8 +206,8 @@ tuần tự các ô. Notebook sẽ:
 
 1. Mount Drive (tuỳ chọn).
 2. Clone repo.
-3. Cài deps + (cố gắng) cài `mamba-ssm`/`causal-conv1d`.
-4. Tải opus-100 zh-vi.
+3. Cài deps cơ bản, rồi (3b) cài CUDA fast-path từ GitHub Releases — auto-detect torch/CUDA/Python để tải đúng wheel `mamba-ssm` + `causal-conv1d`. Fail thì silent fallback sang pure-PyTorch.
+4. Tải corpus zh-vi từ OPUS (TED2020 + WikiMatrix + bible-uedin theo mặc định).
 5. Train tokenizer.
 6. Train mô hình (mặc định 200K cặp × 30K steps trên T4 ≈ 1.5–2 giờ).
 7. Đánh giá BLEU/chrF cả hai chiều.
@@ -248,7 +256,7 @@ pytest tests/ -v
 
 * Gu & Dao, **Mamba: Linear-Time Sequence Modeling with Selective State Spaces**, 2023.
   <https://arxiv.org/abs/2312.00752>
-* OPUS-100: <https://huggingface.co/datasets/Helsinki-NLP/opus-100>
+* OPUS: <https://opus.nlpl.eu/> — TED2020, WikiMatrix, bible-uedin, OpenSubtitles, NLLB
 * `mamba-ssm`: <https://github.com/state-spaces/mamba>
 
 ---
