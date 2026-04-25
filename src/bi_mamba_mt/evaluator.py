@@ -31,6 +31,7 @@ def evaluate(
     *,
     batch_size: int = 16,
     beam_size: int = 4,
+    length_penalty: float = 1.0,
     max_len: int = 256,
     device: torch.device | None = None,
 ) -> EvalResult:
@@ -54,6 +55,7 @@ def evaluate(
             batch,
             direction,
             beam_size=beam_size,
+            length_penalty=length_penalty,
             max_len=max_len,
             device=device,
         )

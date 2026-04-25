@@ -78,6 +78,57 @@ class TrainConfig:
     eval_every: int = 2_000
     save_every: int = 2_000
     amp_dtype: str = "bf16"
+    # Exponential moving average of model weights for inference. Decay of
+    # 0.9990 ≈ effective window of 1000 steps; 0.9999 ≈ 10000 steps.
+    ema: bool = True
+    ema_decay: float = 0.9990
+
+
+class EMA:
+    """Exponential moving average of model parameters.
+
+    Maintains a CPU/GPU copy of the model parameters that lags behind the
+    training weights, and can be temporarily swapped in for evaluation /
+    final checkpointing. EMA weights consistently give +0.3–1.0 BLEU on top
+    of the raw last-step weights for NMT.
+    """
+
+    def __init__(self, model: nn.Module, decay: float = 0.999) -> None:
+        self.decay = float(decay)
+        self.shadow: dict[str, torch.Tensor] = {}
+        self._backup: dict[str, torch.Tensor] = {}
+        for name, p in model.named_parameters():
+            if p.requires_grad:
+                self.shadow[name] = p.detach().clone()
+
+    @torch.no_grad()
+    def update(self, model: nn.Module) -> None:
+        d = self.decay
+        for name, p in model.named_parameters():
+            if p.requires_grad and name in self.shadow:
+                self.shadow[name].mul_(d).add_(p.detach(), alpha=1.0 - d)
+
+    def apply(self, model: nn.Module) -> None:
+        """Swap EMA weights into the model (remember to call ``restore`` after)."""
+        self._backup = {}
+        for name, p in model.named_parameters():
+            if p.requires_grad and name in self.shadow:
+                self._backup[name] = p.detach().clone()
+                p.data.copy_(self.shadow[name].data)
+
+    def restore(self, model: nn.Module) -> None:
+        for name, p in model.named_parameters():
+            if name in self._backup:
+                p.data.copy_(self._backup[name].data)
+        self._backup = {}
+
+    def state_dict(self) -> dict[str, torch.Tensor]:
+        return {k: v.detach().cpu() for k, v in self.shadow.items()}
+
+    def load_state_dict(self, sd: dict[str, torch.Tensor]) -> None:
+        for k, v in sd.items():
+            if k in self.shadow:
+                self.shadow[k].data.copy_(v.to(self.shadow[k].device))
 
 
 def label_smoothed_cross_entropy(
@@ -131,6 +182,8 @@ def train(
         else nullcontext()
     )
 
+    ema = EMA(model, decay=cfg.ema_decay) if cfg.ema else None
+
     step = 0
     model.train()
     pbar = tqdm(total=cfg.max_steps, desc="train", dynamic_ncols=True)
@@ -178,6 +231,9 @@ def train(
             optimizer.step()
         optimizer.zero_grad(set_to_none=True)
 
+        if ema is not None:
+            ema.update(model)
+
         step += 1
         pbar.update(1)
 
@@ -197,30 +253,45 @@ def train(
 
         if val_loader is not None and step % cfg.eval_every == 0:
             val_loss = evaluate_loss(model, val_loader, device, dtype=dtype)
-            tqdm.write(f"step {step} | val_loss {val_loss:.3f}")
+            log = {"step": step, "val_loss": val_loss}
+            if ema is not None:
+                ema.apply(model)
+                ema_val_loss = evaluate_loss(model, val_loader, device, dtype=dtype)
+                ema.restore(model)
+                log["ema_val_loss"] = ema_val_loss
+                tqdm.write(
+                    f"step {step} | val_loss {val_loss:.3f} | ema_val_loss {ema_val_loss:.3f}"
+                )
+            else:
+                tqdm.write(f"step {step} | val_loss {val_loss:.3f}")
             if log_callback is not None:
-                log_callback({"step": step, "val_loss": val_loss})
+                log_callback(log)
             model.train()
 
         if step % cfg.save_every == 0 or step == cfg.max_steps:
             ckpt_path = out_dir / f"checkpoint_step{step}.pt"
-            torch.save(
-                {
-                    "model": model.state_dict(),
-                    "model_cfg": vars(model.cfg),
-                    "step": step,
-                },
-                ckpt_path,
-            )
+            payload = {
+                "model": model.state_dict(),
+                "model_cfg": vars(model.cfg),
+                "step": step,
+            }
+            if ema is not None:
+                payload["ema"] = ema.state_dict()
+            torch.save(payload, ckpt_path)
             # Also keep a 'latest' alias
-            torch.save(
-                {
+            torch.save(payload, out_dir / "latest.pt")
+            # And keep a separate 'latest_ema' alias holding the EMA weights
+            # already swapped into the model state_dict for easy loading.
+            if ema is not None:
+                ema.apply(model)
+                ema_payload = {
                     "model": model.state_dict(),
                     "model_cfg": vars(model.cfg),
                     "step": step,
-                },
-                out_dir / "latest.pt",
-            )
+                    "is_ema": True,
+                }
+                torch.save(ema_payload, out_dir / "latest_ema.pt")
+                ema.restore(model)
     pbar.close()
 
 
