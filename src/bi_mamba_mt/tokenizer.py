@@ -87,10 +87,39 @@ class Tokenizer:
     def vocab_size(self) -> int:
         return self.sp.GetPieceSize()
 
-    def encode(self, text: str) -> List[int]:
+    def encode(
+        self,
+        text: str,
+        *,
+        sampling: bool = False,
+        alpha: float = 0.1,
+    ) -> List[int]:
+        """Encode text into SentencePiece BPE ids.
+
+        When ``sampling=True`` (BPE-dropout / subword regularization), each
+        call returns a different segmentation of the input drawn from the
+        ``nbest_size=-1`` posterior with smoothing ``alpha``. This acts as
+        token-level data augmentation and typically gives +0.3–0.8 BLEU
+        on low-resource MT (Provilkov et al., 2020).
+        """
+        if sampling and alpha > 0:
+            return self.sp.encode(
+                text,
+                out_type=int,
+                enable_sampling=True,
+                nbest_size=-1,
+                alpha=float(alpha),
+            )
         return self.sp.EncodeAsIds(text)
 
-    def encode_src(self, text: str, direction: str) -> List[int]:
+    def encode_src(
+        self,
+        text: str,
+        direction: str,
+        *,
+        sampling: bool = False,
+        alpha: float = 0.1,
+    ) -> List[int]:
         """Encode source with the right direction tag.
 
         ``direction`` is one of "zh2vi" or "vi2zh".
@@ -102,11 +131,17 @@ class Tokenizer:
             tag = VI2ZH_ID
         else:
             raise ValueError(f"Unknown direction: {direction}")
-        return [tag] + self.encode(text) + [EOS_ID]
+        return [tag] + self.encode(text, sampling=sampling, alpha=alpha) + [EOS_ID]
 
-    def encode_tgt(self, text: str) -> List[int]:
+    def encode_tgt(
+        self,
+        text: str,
+        *,
+        sampling: bool = False,
+        alpha: float = 0.1,
+    ) -> List[int]:
         """Encode target as ``[<bos>, ...tgt_ids..., <eos>]``."""
-        return [BOS_ID] + self.encode(text) + [EOS_ID]
+        return [BOS_ID] + self.encode(text, sampling=sampling, alpha=alpha) + [EOS_ID]
 
     def decode(self, ids: List[int]) -> str:
         # Strip special tokens

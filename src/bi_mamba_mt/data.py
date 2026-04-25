@@ -178,6 +178,7 @@ class TranslationDataset(Dataset):
         max_tgt_len: int,
         bidirectional: bool = True,
         seed: int = 0,
+        bpe_dropout: float = 0.0,
     ) -> None:
         self.pairs = list(pairs)
         self.tokenizer = tokenizer
@@ -185,6 +186,9 @@ class TranslationDataset(Dataset):
         self.max_tgt_len = max_tgt_len
         self.bidirectional = bidirectional
         self.rng = random.Random(seed)
+        # BPE-dropout / subword regularization (α). 0.0 = deterministic
+        # tokenization (default for valid/test). Use ~0.1 on train data.
+        self.bpe_dropout = float(bpe_dropout)
         # Pre-build a deterministic direction list when bidirectional, so
         # both directions are seen equally and reproducibly.
         if bidirectional:
@@ -230,8 +234,13 @@ class TranslationDataset(Dataset):
         else:
             src_text, tgt_text = pair.vi, pair.zh
 
-        src_ids = self.tokenizer.encode_src(src_text, direction)
-        tgt_ids = self.tokenizer.encode_tgt(tgt_text)
+        sampling = self.bpe_dropout > 0.0
+        src_ids = self.tokenizer.encode_src(
+            src_text, direction, sampling=sampling, alpha=self.bpe_dropout
+        )
+        tgt_ids = self.tokenizer.encode_tgt(
+            tgt_text, sampling=sampling, alpha=self.bpe_dropout
+        )
 
         # Truncate
         src_ids = src_ids[: self.max_src_len]

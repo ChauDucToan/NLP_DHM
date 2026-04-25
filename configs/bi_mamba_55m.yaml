@@ -1,23 +1,25 @@
 # Bi-Mamba — Chinese↔Vietnamese translation.
 #
-# Default budget (~63M with vocab=32k):
-#   embedding (shared, tied with lm_head) : 32,000 × 512   ≈ 16.4M
-#   encoder (5 × bi-mamba + ffn @ d_model=512)             ≈ 23.0M
-#   decoder (5 × mamba + cross-attn + ffn)                 ≈ 23.4M
-#   final norms + biases                                   ≈   0M
-#   total                                                  ≈ 62.8M
-# (To stay at ~55M, keep vocab_size=16000.)
+# Default budget (~110M with vocab=32k, d_model=640, layers 6/6, d_ff=1792):
+#   embedding (shared, tied with lm_head) : 32,000 × 640   ≈ 20.5M
+#   encoder (6 × bi-mamba + ffn @ d_model=640)             ≈ ~35M
+#   decoder (6 × mamba + cross-attn + ffn)                 ≈ ~55M
+#   total                                                  ≈ 110M
+#
+# Older 55M / 63M checkpoints (d_model=512, layers 5/5) still load — the
+# trainer stores ``model_cfg`` inside the checkpoint payload, so
+# ``evaluate.py`` / ``translate.py`` rebuild the right architecture.
 
 model:
   vocab_size: 32000          # shared SentencePiece BPE for zh + vi + special tokens
-  d_model: 512
+  d_model: 640               # was 512 (55M) -> bumped for path A
   d_state: 16                # SSM state size
   d_conv: 4                  # local conv kernel inside Mamba
   expand: 2                  # inner expansion factor
-  n_encoder_layers: 5
-  n_decoder_layers: 5
-  d_ff: 1280                 # FFN inner = 2.5 * d_model (keeps total ≈ 55M params)
-  n_cross_attn_heads: 8
+  n_encoder_layers: 6        # was 5
+  n_decoder_layers: 6        # was 5
+  d_ff: 1792                 # FFN inner ≈ 2.8 * d_model -> ~95M total
+  n_cross_attn_heads: 10     # head_dim = 64 (640 / 10)
   dropout: 0.1
   tie_embeddings: true       # tie input embedding with lm_head
   max_src_len: 256
@@ -110,6 +112,20 @@ train:
   # Set to 0 to disable.
   early_stopping_patience: 15  # 15 ticks * eval_every=2000 = 30k stale steps -> stop
   early_stopping_min_delta: 0.0
+  # ===================================================================
+  # Path A regularizers — turn on for the bigger model so it doesn't
+  # overfit on ~225k clean pairs.
+  # ===================================================================
+  # R-Drop: forward each batch twice with different dropout, add
+  # symmetric KL between the two output distributions. Costs ~1.7×
+  # wall-clock and 2× VRAM per step; gives +0.5–1.5 BLEU on low-resource MT.
+  # Set to 0.0 to disable (e.g. on T4 if you OOM).
+  r_drop_alpha: 1.0
+  # BPE-dropout (subword regularization). Each train sample is re-tokenized
+  # with a random segmentation drawn at α temperature. Eval / inference
+  # always uses the deterministic 1-best segmentation. Typical α: 0.05–0.1.
+  # Set to 0.0 to disable.
+  bpe_dropout: 0.1
 
 eval:
   beam_size: 6

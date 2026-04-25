@@ -27,6 +27,14 @@ def parse_args() -> argparse.Namespace:
         help="Default: <output_dir>/latest.pt from the config. "
              "Pass an averaged or EMA checkpoint to get the best BLEU.",
     )
+    p.add_argument(
+        "--checkpoints",
+        nargs="+",
+        default=None,
+        help="Multiple checkpoints → ensemble decoding (average log-probs "
+             "at every step). Overrides --checkpoint when given. e.g. "
+             "--checkpoints best_ema.pt avg_last5_ema.pt best.pt",
+    )
     p.add_argument("--num-samples", type=int, default=None)
     p.add_argument("--beam-size", type=int, default=None)
     p.add_argument(
@@ -54,19 +62,31 @@ def main() -> None:
     cfg = load_yaml(args.config)
     device = get_device()
 
-    ckpt_path = Path(
-        args.checkpoint or Path(cfg["train"]["output_dir"]) / "latest.pt"
-    )
-    print(f"Loading checkpoint {ckpt_path}")
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    model_cfg = ModelConfig(**ckpt.get("model_cfg", cfg["model"]))
-    model = BiMambaTranslator(model_cfg).to(device)
-    model.load_state_dict(ckpt["model"], strict=False)
-    model.eval()
-    if ckpt.get("is_ema"):
-        print("  (using EMA weights)")
-    if ckpt.get("averaged_n"):
-        print(f"  (averaged from {ckpt['averaged_n']} checkpoints)")
+    def _load_one(path: Path):
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        mcfg = ModelConfig(**ckpt.get("model_cfg", cfg["model"]))
+        m = BiMambaTranslator(mcfg).to(device)
+        m.load_state_dict(ckpt["model"], strict=False)
+        m.eval()
+        if ckpt.get("is_ema"):
+            print(f"  ({path.name}: using EMA weights)")
+        if ckpt.get("averaged_n"):
+            print(f"  ({path.name}: averaged from {ckpt['averaged_n']} checkpoints)")
+        return m
+
+    if args.checkpoints:
+        ckpt_paths = [Path(p) for p in args.checkpoints]
+        print(f"Loading {len(ckpt_paths)} checkpoints for ensemble decoding:")
+        for p in ckpt_paths:
+            print(f"  - {p}")
+        models: list = [_load_one(p) for p in ckpt_paths]
+        model = models if len(models) > 1 else models[0]
+    else:
+        ckpt_path = Path(
+            args.checkpoint or Path(cfg["train"]["output_dir"]) / "latest.pt"
+        )
+        print(f"Loading checkpoint {ckpt_path}")
+        model = _load_one(ckpt_path)
 
     tokenizer = Tokenizer(Path(cfg["data"]["tokenizer_dir"]) / "spm.model")
     test_pairs = read_jsonl(Path(cfg["data"]["processed_dir"]) / "test.jsonl")

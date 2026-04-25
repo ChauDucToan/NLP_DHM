@@ -87,6 +87,12 @@ class TrainConfig:
     # = one tick) without improvement before stopping. Set to 0 to disable.
     early_stopping_patience: int = 10
     early_stopping_min_delta: float = 0.0
+    # R-Drop consistency regularization. When > 0, each batch is forwarded
+    # twice with independent dropout, and a symmetric KL divergence between
+    # the two output distributions is added to the loss with this weight.
+    # Standard values are 1.0–5.0; use 0.0 to disable. Doubles VRAM cost
+    # per step (we concat-double the batch) and ~1.7× wall-clock.
+    r_drop_alpha: float = 0.0
 
 
 class EMA:
@@ -153,6 +159,29 @@ def label_smoothed_cross_entropy(
     return loss
 
 
+def rdrop_kl_loss(
+    logits_a: torch.Tensor,
+    logits_b: torch.Tensor,
+    target: torch.Tensor,
+    pad_id: int,
+) -> torch.Tensor:
+    """Symmetric KL divergence between two passes' output distributions.
+
+    R-Drop (Liang et al., NeurIPS 2021): regularize the model so two
+    independent dropout masks produce similar output distributions on the
+    same input. We mask out pad positions in the target.
+    """
+    log_p_a = F.log_softmax(logits_a.float(), dim=-1)
+    log_p_b = F.log_softmax(logits_b.float(), dim=-1)
+    p_a = log_p_a.exp()
+    p_b = log_p_b.exp()
+    kl_ab = (p_a * (log_p_a - log_p_b)).sum(-1)
+    kl_ba = (p_b * (log_p_b - log_p_a)).sum(-1)
+    sym_kl = 0.5 * (kl_ab + kl_ba)
+    mask = target.ne(pad_id).float()
+    return (sym_kl * mask).sum() / mask.sum().clamp(min=1.0)
+
+
 def train(
     model: BiMambaTranslator,
     train_loader: DataLoader,
@@ -214,10 +243,25 @@ def train(
         src_pad_mask = batch["src_pad_mask"].to(device, non_blocking=True)
 
         with autocast_ctx:
-            logits = model(src, tgt_in, src_pad_mask=src_pad_mask)
-            loss = label_smoothed_cross_entropy(
-                logits, tgt_out, cfg.label_smoothing, PAD_ID
-            )
+            if cfg.r_drop_alpha > 0.0:
+                # Concat-double the batch so both passes share encoder/decoder
+                # forward but independently sample dropout masks.
+                src2 = torch.cat([src, src], dim=0)
+                tgt_in2 = torch.cat([tgt_in, tgt_in], dim=0)
+                tgt_out2 = torch.cat([tgt_out, tgt_out], dim=0)
+                src_pad_mask2 = torch.cat([src_pad_mask, src_pad_mask], dim=0)
+                logits = model(src2, tgt_in2, src_pad_mask=src_pad_mask2)
+                ce = label_smoothed_cross_entropy(
+                    logits, tgt_out2, cfg.label_smoothing, PAD_ID
+                )
+                logits_a, logits_b = logits.chunk(2, dim=0)
+                kl = rdrop_kl_loss(logits_a, logits_b, tgt_out, PAD_ID)
+                loss = ce + cfg.r_drop_alpha * kl
+            else:
+                logits = model(src, tgt_in, src_pad_mask=src_pad_mask)
+                loss = label_smoothed_cross_entropy(
+                    logits, tgt_out, cfg.label_smoothing, PAD_ID
+                )
             loss = loss / cfg.grad_accum_steps
 
         if scaler is not None:

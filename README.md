@@ -1,7 +1,9 @@
-# Bi-Mamba 55M — AI dịch song ngữ Trung ↔ Việt
+# Bi-Mamba ~110M — AI dịch song ngữ Trung ↔ Việt
 
 Một mô hình dịch song ngữ **Trung → Việt** và **Việt → Trung** dùng kiến trúc
-**Bi-Mamba** (selective state-space model) với khoảng **55 triệu tham số**.
+**Bi-Mamba** (selective state-space model) với khoảng **110 triệu tham số**
+(d_model=640, layers 6/6, vocab=32k). Phiên bản cũ 55M (d_model=512, layers
+5/5) vẫn chạy được bằng cách override `d_model` v.v. trong config.
 Repo cung cấp **toàn bộ pipeline từ A đến Z** — tải dữ liệu, train tokenizer,
 train mô hình, đánh giá SacreBLEU, dịch demo — và chạy được:
 
@@ -57,16 +59,18 @@ bi-mamba-zh-vi/
 
 ---
 
-## 2. Kiến trúc Bi-Mamba (~55M tham số)
+## 2. Kiến trúc Bi-Mamba (~110M tham số, default)
 
 | Thành phần                     | Kích thước                              |
 |--------------------------------|------------------------------------------|
-| Vocab (SentencePiece BPE)      | 16 000 (chia sẻ zh + vi)                 |
-| `d_model`                      | 512                                      |
-| Encoder                        | 5 × **Bi-Mamba block** + FFN(1280)       |
-| Decoder                        | 5 × **Mamba (causal) + Cross-attn(8 heads) + FFN(1280)** |
+| Vocab (SentencePiece BPE)      | 32 000 (chia sẻ zh + vi)                 |
+| `d_model`                      | 640                                      |
+| Encoder                        | 6 × **Bi-Mamba block** + FFN(1792)       |
+| Decoder                        | 6 × **Mamba (causal) + Cross-attn(10 heads, head_dim 64) + FFN(1792)** |
 | `d_state` / `d_conv` / expand  | 16 / 4 / 2                               |
-| Tổng tham số                   | **≈ 54.6 M** (tied input + lm_head)      |
+| Tổng tham số                   | **≈ 110 M** (tied input + lm_head)       |
+| **Regularization**             | EMA(0.999) + R-Drop(α=1) + BPE-dropout(α=0.1) |
+| **Decoding**                   | beam=6, per-direction LP (zh→vi: 1.20, vi→zh: 0.80), multi-checkpoint ensemble |
 
 * **Encoder Bi-Mamba**: tại mỗi block ta chạy Mamba xuôi và Mamba ngược (trên
   chuỗi đảo) rồi tổng hợp tuyến tính → ngữ cảnh hai chiều.

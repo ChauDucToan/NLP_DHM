@@ -49,6 +49,9 @@ def main() -> None:
     valid_pairs = read_jsonl(proc_dir / "valid.jsonl")
     print(f"Train pairs: {len(train_pairs)} | Valid pairs: {len(valid_pairs)}")
 
+    bpe_dropout = float(cfg["train"].get("bpe_dropout", 0.0))
+    if bpe_dropout > 0.0:
+        print(f"BPE-dropout enabled at \u03b1={bpe_dropout}")
     train_ds = TranslationDataset(
         pairs=train_pairs,
         tokenizer=tokenizer,
@@ -56,6 +59,7 @@ def main() -> None:
         max_tgt_len=int(cfg["model"]["max_tgt_len"]),
         bidirectional=bool(cfg["data"].get("bidirectional", True)),
         seed=int(cfg["train"].get("seed", 42)),
+        bpe_dropout=bpe_dropout,
     )
     valid_ds = TranslationDataset(
         pairs=valid_pairs,
@@ -64,6 +68,8 @@ def main() -> None:
         max_tgt_len=int(cfg["model"]["max_tgt_len"]),
         bidirectional=bool(cfg["data"].get("bidirectional", True)),
         seed=int(cfg["train"].get("seed", 42)) + 1,
+        # NEVER apply BPE-dropout to validation/test \u2014 we want a stable val_loss.
+        bpe_dropout=0.0,
     )
     collate = Collator(pad_id=int(cfg["model"]["pad_id"]))
 
