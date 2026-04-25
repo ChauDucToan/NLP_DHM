@@ -82,8 +82,8 @@ train:
   output_dir: "runs/bi_mamba_55m"
   batch_size: 128
   grad_accum_steps: 1
-  max_steps: 60000           # ~ 30+ epochs over ~450k bi-direction pairs at bs=128
-  warmup_steps: 2000
+  max_steps: 120000          # ~ 35 epochs over ~450k bi-direction pairs at bs=128
+  warmup_steps: 4000
   lr: 5.0e-4
   min_lr: 1.0e-5
   weight_decay: 0.1
@@ -108,7 +108,7 @@ train:
   # Early stopping. Patience is in number of eval ticks (each eval_every steps).
   # 10 ticks * eval_every=2000 = 20K steps without improvement -> stop.
   # Set to 0 to disable.
-  early_stopping_patience: 10
+  early_stopping_patience: 15  # 15 ticks * eval_every=2000 = 30k stale steps -> stop
   early_stopping_min_delta: 0.0
 
 eval:
