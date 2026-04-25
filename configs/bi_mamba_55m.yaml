@@ -43,12 +43,20 @@ data:
   # Data source — direct download from OPUS (no HuggingFace dataset needed).
   # Pick a preset via `prepare_data.py --preset {tiny|small|medium|large}` or
   # override with `--sources ted2020 wikimatrix opensubtitles ...`.
-  preset: "medium"            # tiny / small / medium / large
+  #
+  # NOTE on preset choice: empirically `small` (TED2020 + WikiMatrix +
+  # bible-uedin, ~225k clean pairs) gives the *highest* test BLEU on the
+  # default test split. `medium` adds OpenSubtitles vi-zh_cn which is huge
+  # but extremely noisy and conversational, and the test split inherits
+  # that noise → BLEU collapses to ~1–2. If you do want OpenSubtitles, use
+  # ``max_pairs_per_source.opensubtitles`` to cap it (e.g. 100k) so it can
+  # add some conversational variety without drowning out the clean data.
+  preset: "small"             # tiny / small / medium / large
   raw_dir: "data/raw"
   processed_dir: "data/processed"
   tokenizer_dir: "data/tokenizer"
   # Subsample for fast Colab runs. Set null for full corpus.
-  max_train_pairs: 1500000
+  max_train_pairs: 400000
   max_valid_pairs: 2000
   max_test_pairs: 2000
   min_len: 1
@@ -62,13 +70,20 @@ data:
   # len(zh)/len(vi) ≈ 0.20–0.60 (vi has spaces + diacritics so it's longer).
   min_zh_vi_ratio: 0.10
   max_zh_vi_ratio: 1.20
+  # Per-source caps (only takes effect when the source is in the preset).
+  # Set the noisy/large sources to a sane upper bound so they cannot dominate.
+  max_pairs_per_source:
+    opensubtitles: 100000     # cap conversational subtitles to 100k
+    wikimatrix:    100000     # cap WikiMatrix to 100k (top-LASER pairs)
+    nllb:          200000     # cap NLLB pseudo-aligned data
+    # ted2020 / bible_uedin left uncapped — they're small + clean
 
 train:
   output_dir: "runs/bi_mamba_55m"
   batch_size: 128
   grad_accum_steps: 1
-  max_steps: 100000          # ~ a few epochs over 3M bi-direction pairs at bs=128
-  warmup_steps: 4000
+  max_steps: 60000           # ~ 30+ epochs over ~450k bi-direction pairs at bs=128
+  warmup_steps: 2000
   lr: 5.0e-4
   min_lr: 1.0e-5
   weight_decay: 0.1
