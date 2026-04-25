@@ -39,10 +39,10 @@ tokenizer:
   # Note: <pad>, <bos>, <eos>, <unk> are passed via SP control flags.
 
 data:
-  dataset: "Helsinki-NLP/opus-100"
-  config: "vi-zh"            # opus-100 zh-vi pair (key is "vi-zh")
-  src_lang_key: "zh"         # in opus-100, translation dict has "zh" and "vi" keys
-  tgt_lang_key: "vi"
+  # Data source — direct download from OPUS (no HuggingFace dataset needed).
+  # Pick a preset via `prepare_data.py --preset {tiny|small|medium|large}` or
+  # override with `--sources ted2020 wikimatrix opensubtitles ...`.
+  preset: "small"             # tiny / small / medium / large
   raw_dir: "data/raw"
   processed_dir: "data/processed"
   tokenizer_dir: "data/tokenizer"
