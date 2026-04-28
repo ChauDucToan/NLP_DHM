@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import time
 from contextlib import nullcontext
@@ -168,6 +169,16 @@ def train(
     """
     out_dir = Path(cfg.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    metrics_path = out_dir / "metrics.jsonl"
+    # Truncate any prior metrics file so a fresh run produces a clean
+    # JSON Lines log (one event per line). Each line carries either a
+    # step-level training event (``loss``/``lr``/``tok/s``) or an
+    # evaluation event (``val_loss``/``ema_val_loss``).
+    metrics_path.write_text("")
+
+    def _write_metric(d: dict) -> None:
+        with open(metrics_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(d, ensure_ascii=False) + "\n")
 
     model = model.to(device)
     optimizer = build_optimizer(
@@ -262,6 +273,7 @@ def train(
                 "tok/s": tok_per_sec,
             }
             pbar.set_postfix(loss=f"{log['loss']:.3f}", lr=f"{lr:.1e}")
+            _write_metric({"event": "train", **log})
             if log_callback is not None:
                 log_callback(log)
 
@@ -317,6 +329,20 @@ def train(
                 tqdm.write(
                     f"step {step} | val_loss {val_loss:.3f} (best {best_val_loss:.3f})"
                 )
+            _write_metric({
+                "event": "eval",
+                "step": step,
+                "val_loss": float(val_loss),
+                "best_val_loss": float(best_val_loss),
+                **(
+                    {
+                        "ema_val_loss": float(log["ema_val_loss"]),
+                        "best_ema_val_loss": float(best_ema_val_loss),
+                    }
+                    if "ema_val_loss" in log
+                    else {}
+                ),
+            })
             if log_callback is not None:
                 log_callback(log)
 
