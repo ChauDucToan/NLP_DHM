@@ -9,15 +9,16 @@ Available presets (chosen via ``--preset``):
 * ``tiny``      — TED2020 only (~ 50 k pairs, ~ 1 MB).         Good for smoke tests.
 * ``small``     — TED2020 + WikiMatrix + bible-uedin
                   (~ 200 k pairs, ~ 25 MB).                    Bible-heavy (~14%).
-* ``everyday``  — TED2020 + WikiMatrix + OpenSubtitles + NLLB + bible-uedin
-                  (all capped) (~ 225 k pairs, ~ 700 MB NLLB download).
-                                                               **Default.**
-                  Bible only ~3% of mix; OpenSubtitles adds conversational
-                  vocabulary (everyday phrases, greetings); NLLB adds
-                  web-mined diverse domains (news, tourism, narrative).
-                  Requires ``zh_normalize_simplified`` + ``zh_filter_cantonese``
-                  (defaults) — NLLB has ~14% Traditional zh which OpenCC
-                  converts on the fly.
+* ``everyday``  — TED2020 + WikiMatrix + OpenSubtitles + bible-uedin (all
+                  capped, ~ 114 k pairs, ~ 65 MB).             **Default.**
+                  Bible only ~5% of mix; OpenSubtitles is included at a small
+                  dose (cap 20k) for conversational vocabulary without
+                  dominating. **Note (v2 revision):** an earlier `everyday`
+                  variant included NLLB cap 50k + OpenSubtitles cap 80k, but
+                  trained to BLEU 5.96 zh→vi (vs 47.89 baseline) — NLLB
+                  pseudo-alignment noise + OpenSubtitles fragments swamped
+                  the signal. The current preset drops NLLB and reduces
+                  OpenSubtitles to a small dose.
 * ``medium``    — small + OpenSubtitles vi-zh_cn (~ 3 M pairs, ~ 65 MB zip).
 * ``large``     — medium + NLLB / CCMatrix (~ 30 M pairs).     For full-corpus runs.
 
@@ -140,13 +141,14 @@ SOURCES: dict[str, OpusSource] = {
 PRESETS: dict[str, list[str]] = {
     "tiny":     ["ted2020"],
     "small":    ["ted2020", "wikimatrix", "bible_uedin"],
-    # `everyday` is the recommended default: bible-uedin gets a tight cap (~3%
-    # of the mix) so the model is not biased toward biblical register,
-    # OpenSubtitles is included (capped) for conversational vocabulary, and
-    # NLLB (capped) provides web-mined diverse domains (news, tourism,
-    # narrative). With OpenCC normalization + Cantonese filter enabled the
-    # heterogeneous zh side of NLLB (~14% Trad) is normalised to Simplified.
-    "everyday": ["ted2020", "wikimatrix", "opensubtitles", "nllb", "bible_uedin"],
+    # `everyday` (v2) is the recommended default: bible-uedin gets a tight cap
+    # (~5% of the mix) so the model is not biased toward biblical register, and
+    # OpenSubtitles is included at a *small* cap (~17% of mix) for conversational
+    # vocabulary. NLLB was previously included but its pseudo-alignment noise +
+    # large cap (50k) hurt BLEU heavily (5.96 vs 47.89 baseline) so it is now
+    # excluded. NLLB still lives in the `large` preset for users who specifically
+    # want web-mined diversity and accept the noise.
+    "everyday": ["ted2020", "wikimatrix", "opensubtitles", "bible_uedin"],
     "medium":   ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles"],
     "large":    ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles", "nllb"],
 }
@@ -391,8 +393,12 @@ def main() -> None:
     n = len(pairs)
     n_test = int(args.max_test_pairs or data_cfg.get("max_test_pairs", 2000))
     n_valid = int(args.max_valid_pairs or data_cfg.get("max_valid_pairs", 2000))
-    n_test = min(n_test, max(1, n // 50))
-    n_valid = min(n_valid, max(1, n // 50))
+    # Cap each split at 10% of the pool (was 2%) so the user can request larger
+    # valid / test splits (e.g. 5000) on smaller corpora (~115k) without being
+    # silently clipped to 2305. Splits still cannot exceed 10% to guarantee
+    # train >= 80% of the data.
+    n_test = min(n_test, max(1, n // 10))
+    n_valid = min(n_valid, max(1, n // 10))
 
     test_pairs = pairs[:n_test]
     valid_pairs = pairs[n_test : n_test + n_valid]
