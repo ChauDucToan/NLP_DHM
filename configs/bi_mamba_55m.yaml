@@ -86,17 +86,18 @@ data:
   max_zh_vi_ratio: 1.20
   # Per-source caps (only takes effect when the source is in the preset).
   # Set the noisy/large sources to a sane upper bound so they cannot dominate.
-  # Defaults are tuned for the `everyday` preset (~175k clean pairs total
+  # Defaults are tuned for the `everyday` preset (~225k clean pairs total
   # *after* Cantonese filter + Trad→Simp normalisation):
   #   TED2020 ~4k  (uncapped — most of TED2020.zh is Cantonese, dropped)
   #   WikiMatrix ~85k (cap 100k)
-  #   OpenSubtitles ~80k (cap 80k)
-  #   bible-uedin ~6k (cap 6k → ~3.4% of mix).
+  #   OpenSubtitles ~80k (cap 80k, conversational)
+  #   NLLB ~50k (cap 50k, web-mined news/tourism/narrative)
+  #   bible-uedin ~6k (cap 6k → ~2.7% of mix).
   max_pairs_per_source:
-    opensubtitles: 80000      # cap conversational subtitles to 80k (~46% of mix)
-    wikimatrix:    100000     # cap WikiMatrix to 100k (top-LASER pairs)
-    bible_uedin:   6000       # cap bible-uedin to 6k → ~3-4% of mix (was ~14%)
-    nllb:          200000     # cap NLLB pseudo-aligned data
+    opensubtitles: 80000      # cap conversational subtitles to 80k (~36% of mix)
+    wikimatrix:    100000     # cap WikiMatrix to 100k (top-LASER pairs, ~38%)
+    nllb:          50000      # cap NLLB web-mined to 50k (~22%, broad domains)
+    bible_uedin:   6000       # cap bible-uedin to 6k → ~3% of mix (was ~14%)
     # ted2020 left uncapped — most of it is Cantonese and gets filtered out
 
 train:

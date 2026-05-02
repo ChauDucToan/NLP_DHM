@@ -143,7 +143,7 @@ Tham số hữu ích:
 * `--preset {tiny|small|everyday|medium|large}` — chọn bộ corpus OPUS:
   * `tiny`     — TED2020 (~50 K, 1 MB)
   * `small`    — TED2020 + WikiMatrix + bible-uedin (~200 K) — bible chiếm ~14%, model dịch lệch giọng Kinh Thánh
-  * `everyday` — TED2020 + WikiMatrix + OpenSubtitles (cap 80k) + bible-uedin (cap 8k) (~205 K) — **mặc định**, bible chỉ ~3%, có hội thoại đời thường
+  * `everyday` — TED2020 + WikiMatrix + OpenSubtitles (80k) + NLLB (50k) + bible-uedin (6k) (~225 K) — **mặc định**, bible ~3%, đa dạng domain (hội thoại, news, du lịch, narrative)
   * `medium`   — small + OpenSubtitles uncapped (~3 M) — KHÔNG khuyến nghị nếu không cap
   * `large`    — medium + NLLB (~30 M, 700 MB)
 * `--sources ted2020 wikimatrix opensubtitles` — danh sách nguồn tự chọn.
@@ -165,9 +165,13 @@ chỉ OpenSubtitles vi-zh_cn là Mandarin Giản thể đúng nghĩa. Pipeline m
 * `data.zh_normalize_simplified: true` — dùng OpenCC chuyển Trad→Simp ở
   phía zh, để toàn bộ pool nhất quán Mandarin Giản thể.
 
-Sau khi áp filter + normalize, TED2020 còn ~4k cặp (sạch Mandarin),
-WikiMatrix giữ ~85k, OpenSubtitles 80k, bible 6k → tổng ~175k pairs sạch
-+ nhất quán phương ngữ.
+Sau khi áp filter + normalize, TED2020 còn ~3k cặp (sạch Mandarin),
+WikiMatrix giữ ~85k, OpenSubtitles 80k, NLLB 50k (web-mined đa domain),
+bible 6k → tổng ~225k pairs sạch + nhất quán phương ngữ.
+
+> NLLB tải ~700 MB (zip) và mất 1–2 phút stream qua filter + OpenCC trên
+> Colab. Nếu muốn skip NLLB, đặt `cfg['data']['preset']='small'` hoặc
+> bỏ `'nllb'` khỏi `--sources` thủ công.
 
 **Lưu ý quan trọng về `medium` / `large` không cap**: OpenSubtitles vi-zh_cn
 (chiếm ~85% medium) và NLLB là parallel pseudo-aligned, có rất nhiều noise

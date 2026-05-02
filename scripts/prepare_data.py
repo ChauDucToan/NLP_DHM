@@ -9,11 +9,15 @@ Available presets (chosen via ``--preset``):
 * ``tiny``      — TED2020 only (~ 50 k pairs, ~ 1 MB).         Good for smoke tests.
 * ``small``     — TED2020 + WikiMatrix + bible-uedin
                   (~ 200 k pairs, ~ 25 MB).                    Bible-heavy (~14%).
-* ``everyday``  — TED2020 + WikiMatrix + OpenSubtitles + bible-uedin (capped)
-                  (~ 200 k pairs, ~ 65 MB).                    **Default.**
-                  Bible only ~3% of mix, OpenSubtitles adds conversational
-                  vocabulary (everyday phrases, greetings) so the model can
-                  translate phrases like "hello world" naturally.
+* ``everyday``  — TED2020 + WikiMatrix + OpenSubtitles + NLLB + bible-uedin
+                  (all capped) (~ 225 k pairs, ~ 700 MB NLLB download).
+                                                               **Default.**
+                  Bible only ~3% of mix; OpenSubtitles adds conversational
+                  vocabulary (everyday phrases, greetings); NLLB adds
+                  web-mined diverse domains (news, tourism, narrative).
+                  Requires ``zh_normalize_simplified`` + ``zh_filter_cantonese``
+                  (defaults) — NLLB has ~14% Traditional zh which OpenCC
+                  converts on the fly.
 * ``medium``    — small + OpenSubtitles vi-zh_cn (~ 3 M pairs, ~ 65 MB zip).
 * ``large``     — medium + NLLB / CCMatrix (~ 30 M pairs).     For full-corpus runs.
 
@@ -137,9 +141,12 @@ PRESETS: dict[str, list[str]] = {
     "tiny":     ["ted2020"],
     "small":    ["ted2020", "wikimatrix", "bible_uedin"],
     # `everyday` is the recommended default: bible-uedin gets a tight cap (~3%
-    # of the mix) so the model is not biased toward biblical register, and
-    # OpenSubtitles is included (capped) for conversational vocabulary.
-    "everyday": ["ted2020", "wikimatrix", "opensubtitles", "bible_uedin"],
+    # of the mix) so the model is not biased toward biblical register,
+    # OpenSubtitles is included (capped) for conversational vocabulary, and
+    # NLLB (capped) provides web-mined diverse domains (news, tourism,
+    # narrative). With OpenCC normalization + Cantonese filter enabled the
+    # heterogeneous zh side of NLLB (~14% Trad) is normalised to Simplified.
+    "everyday": ["ted2020", "wikimatrix", "opensubtitles", "nllb", "bible_uedin"],
     "medium":   ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles"],
     "large":    ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles", "nllb"],
 }
