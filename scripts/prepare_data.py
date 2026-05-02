@@ -6,12 +6,20 @@ since OPUS-100 does not actually contain a zh-vi pair.
 
 Available presets (chosen via ``--preset``):
 
-* ``tiny``    — TED2020 only (~ 50 k pairs, ~ 1 MB).         Good for smoke tests.
-* ``small``   — TED2020 + WikiMatrix + bible-uedin
-                (~ 200 k pairs, ~ 25 MB).                    Default; OK on free Colab.
-* ``medium``  — small + OpenSubtitles vi-zh_cn
-                (~ 3 M pairs, ~ 65 MB zip).                  Best quality vs. size.
-* ``large``   — medium + NLLB / CCMatrix (~ 30 M pairs).     For full-corpus runs.
+* ``tiny``      — TED2020 only (~ 50 k pairs, ~ 1 MB).         Good for smoke tests.
+* ``small``     — TED2020 + WikiMatrix + bible-uedin
+                  (~ 200 k pairs, ~ 25 MB).                    Bible-heavy (~14%).
+* ``everyday``  — TED2020 + WikiMatrix + OpenSubtitles + bible-uedin (capped)
+                  (~ 200 k pairs, ~ 65 MB).                    **Default.**
+                  Bible only ~3% of mix, OpenSubtitles adds conversational
+                  vocabulary (everyday phrases, greetings) so the model can
+                  translate phrases like "hello world" naturally.
+* ``medium``    — small + OpenSubtitles vi-zh_cn (~ 3 M pairs, ~ 65 MB zip).
+* ``large``     — medium + NLLB / CCMatrix (~ 30 M pairs).     For full-corpus runs.
+
+Note: other zh-vi corpora on OPUS (Tatoeba, QED, ALT, NeuLab-TedTalks,
+wikimedia) are either unavailable or have a corrupted Chinese side
+(many characters dropped during alignment) and are intentionally excluded.
 
 You can also use ``--custom-jsonl path/to/your.jsonl`` to skip downloads
 and use your own corpus, where each line is ``{"zh": "...", "vi": "..."}``.
@@ -93,10 +101,14 @@ SOURCES: dict[str, OpusSource] = {
 }
 
 PRESETS: dict[str, list[str]] = {
-    "tiny":   ["ted2020"],
-    "small":  ["ted2020", "wikimatrix", "bible_uedin"],
-    "medium": ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles"],
-    "large":  ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles", "nllb"],
+    "tiny":     ["ted2020"],
+    "small":    ["ted2020", "wikimatrix", "bible_uedin"],
+    # `everyday` is the recommended default: bible-uedin gets a tight cap (~3%
+    # of the mix) so the model is not biased toward biblical register, and
+    # OpenSubtitles is included (capped) for conversational vocabulary.
+    "everyday": ["ted2020", "wikimatrix", "opensubtitles", "bible_uedin"],
+    "medium":   ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles"],
+    "large":    ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles", "nllb"],
 }
 
 

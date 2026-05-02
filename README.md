@@ -140,19 +140,26 @@ data/processed/test.jsonl
 
 Tham số hữu ích:
 
-* `--preset {tiny|small|medium|large}` — chọn bộ corpus OPUS:
-  * `tiny`   — TED2020 (~50 K, 1 MB)
-  * `small`  — TED2020 + WikiMatrix + bible-uedin (~200 K, 25 MB) — **mặc định, BLEU cao nhất**
-  * `medium` — small + OpenSubtitles vi-zh_cn (~3 M, 65 MB) — chỉ dùng nếu cap OpenSubtitles
-  * `large`  — medium + NLLB (~30 M, 700 MB)
+* `--preset {tiny|small|everyday|medium|large}` — chọn bộ corpus OPUS:
+  * `tiny`     — TED2020 (~50 K, 1 MB)
+  * `small`    — TED2020 + WikiMatrix + bible-uedin (~200 K) — bible chiếm ~14%, model dịch lệch giọng Kinh Thánh
+  * `everyday` — TED2020 + WikiMatrix + OpenSubtitles (cap 80k) + bible-uedin (cap 8k) (~205 K) — **mặc định**, bible chỉ ~3%, có hội thoại đời thường
+  * `medium`   — small + OpenSubtitles uncapped (~3 M) — KHÔNG khuyến nghị nếu không cap
+  * `large`    — medium + NLLB (~30 M, 700 MB)
 * `--sources ted2020 wikimatrix opensubtitles` — danh sách nguồn tự chọn.
 
-**Lưu ý quan trọng về `medium` / `large`**: OpenSubtitles vi-zh_cn (chiếm
-~85% medium) và NLLB là parallel pseudo-aligned, có rất nhiều noise và
-phong cách hội thoại ngắn. Khi dùng nguyên cục, nó nuốt gọn dữ liệu sạch
-→ test set cũng bị nhiễm noise → BLEU collapse từ ~16 xuống ~2. Nên
-**cap chúng** qua `data.max_pairs_per_source.opensubtitles: 100000` (mặc
-định trong config) để có data đa dạng mà vẫn giữ được signal sạch.
+**Vì sao `everyday` là mặc định:** preset `small` cũ làm bible-uedin chiếm
+~14% pool sạch → model dịch "Hello, world" thành "Ngày tốt, thế giới"
+(văn phong Kinh Thánh) thay vì "Xin chào, thế giới". `everyday` giảm
+bible xuống ~3% qua `max_pairs_per_source.bible_uedin = 8000` và thêm
+OpenSubtitles cap 80k để có hội thoại đời thường.
+
+**Lưu ý quan trọng về `medium` / `large` không cap**: OpenSubtitles vi-zh_cn
+(chiếm ~85% medium) và NLLB là parallel pseudo-aligned, có rất nhiều noise
+và phong cách hội thoại ngắn. Khi dùng nguyên cục, nó nuốt gọn dữ liệu
+sạch → test set cũng bị nhiễm noise → BLEU collapse từ ~16 xuống ~2. Nên
+**cap chúng** qua `data.max_pairs_per_source.opensubtitles: 80000`
+(mặc định) để có data đa dạng mà vẫn giữ được signal sạch.
 * `--max-train-pairs 200000` — subsample tập train.
 * `--custom-jsonl my.jsonl` — dùng dataset riêng (mỗi dòng `{"zh": "...", "vi": "..."}`).
 
