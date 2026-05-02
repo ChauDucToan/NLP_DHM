@@ -151,8 +151,23 @@ Tham số hữu ích:
 **Vì sao `everyday` là mặc định:** preset `small` cũ làm bible-uedin chiếm
 ~14% pool sạch → model dịch "Hello, world" thành "Ngày tốt, thế giới"
 (văn phong Kinh Thánh) thay vì "Xin chào, thế giới". `everyday` giảm
-bible xuống ~3% qua `max_pairs_per_source.bible_uedin = 8000` và thêm
+bible xuống ~3% qua `max_pairs_per_source.bible_uedin = 6000` và thêm
 OpenSubtitles cap 80k để có hội thoại đời thường.
+
+**Chuẩn hoá phương ngữ tiếng Trung (mới):** các nguồn OPUS zh-vi không cùng
+một thứ tiếng — TED2020.vi-zh.zh thực ra là **tiếng Quảng Đông viết phồn
+thể** (~70% câu chứa hạt từ Cantonese 嘅/哋/啲/咁/喺/嗰/咗/佢...),
+bible-uedin là tiếng Trung phồn thể, WikiMatrix lẫn lộn Giản/Phồn/Cổ văn,
+chỉ OpenSubtitles vi-zh_cn là Mandarin Giản thể đúng nghĩa. Pipeline mới
+áp dụng:
+
+* `data.zh_filter_cantonese: true` — bỏ các cặp có hạt từ Cantonese.
+* `data.zh_normalize_simplified: true` — dùng OpenCC chuyển Trad→Simp ở
+  phía zh, để toàn bộ pool nhất quán Mandarin Giản thể.
+
+Sau khi áp filter + normalize, TED2020 còn ~4k cặp (sạch Mandarin),
+WikiMatrix giữ ~85k, OpenSubtitles 80k, bible 6k → tổng ~175k pairs sạch
++ nhất quán phương ngữ.
 
 **Lưu ý quan trọng về `medium` / `large` không cap**: OpenSubtitles vi-zh_cn
 (chiếm ~85% medium) và NLLB là parallel pseudo-aligned, có rất nhiều noise

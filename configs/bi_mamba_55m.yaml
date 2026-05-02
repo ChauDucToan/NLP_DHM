@@ -70,21 +70,34 @@ data:
   # Strict per-language script filter (zh must be majority CJK; vi must be Latin).
   # This kicks out the worst noise from WikiMatrix.
   script_check: true
+  # Normalise zh to Simplified Mandarin via OpenCC (Trad→Simp). The OPUS zh-vi
+  # corpora are heterogeneous: TED2020 is Cantonese in Traditional script,
+  # bible-uedin is Traditional, WikiMatrix is mixed Trad/Simp/Classical, only
+  # OpenSubtitles vi-zh_cn is Simplified. Without this step the model learns
+  # an inconsistent style and translates everyday phrases in the wrong register.
+  zh_normalize_simplified: true
+  # Drop pairs whose zh side contains Cantonese-only particles (嘅/哋/啲/咁/喺/嗰/咗).
+  # ~70% of TED2020.vi-zh.zh is actually Cantonese (粵語) mis-labelled as zh —
+  # without this filter the model is partly trained on Cantonese, not Mandarin.
+  zh_filter_cantonese: true
   # zh-vi character-length ratio bounds. Empirically clean OPUS pairs sit at
   # len(zh)/len(vi) ≈ 0.20–0.60 (vi has spaces + diacritics so it's longer).
   min_zh_vi_ratio: 0.10
   max_zh_vi_ratio: 1.20
   # Per-source caps (only takes effect when the source is in the preset).
   # Set the noisy/large sources to a sane upper bound so they cannot dominate.
-  # Defaults are tuned for the `everyday` preset (~205k clean pairs total):
-  #   TED2020 ~50k (uncapped) + WikiMatrix ~75k (cap 100k) + OpenSubtitles
-  #   ~75k (cap 80k) + bible-uedin ~7k (cap 8k → ~3% of mix).
+  # Defaults are tuned for the `everyday` preset (~175k clean pairs total
+  # *after* Cantonese filter + Trad→Simp normalisation):
+  #   TED2020 ~4k  (uncapped — most of TED2020.zh is Cantonese, dropped)
+  #   WikiMatrix ~85k (cap 100k)
+  #   OpenSubtitles ~80k (cap 80k)
+  #   bible-uedin ~6k (cap 6k → ~3.4% of mix).
   max_pairs_per_source:
-    opensubtitles: 80000      # cap conversational subtitles to 80k (~36% of mix)
+    opensubtitles: 80000      # cap conversational subtitles to 80k (~46% of mix)
     wikimatrix:    100000     # cap WikiMatrix to 100k (top-LASER pairs)
-    bible_uedin:   8000       # cap bible-uedin to 8k → ~3% of mix (was ~14%)
+    bible_uedin:   6000       # cap bible-uedin to 6k → ~3-4% of mix (was ~14%)
     nllb:          200000     # cap NLLB pseudo-aligned data
-    # ted2020 left uncapped — small + high-quality talks corpus
+    # ted2020 left uncapped — most of it is Cantonese and gets filtered out
 
 train:
   output_dir: "runs/bi_mamba_55m"
