@@ -13,6 +13,10 @@ einops>=0.7
 # Evaluation
 sacrebleu>=2.4
 
+# Data normalization (Traditional → Simplified Chinese for the zh side of OPUS
+# corpora; without this the model trains on inconsistent script + dialect).
+opencc>=1.1.6
+
 # Optional (highly recommended on GPU): selective-scan CUDA kernels.
 # Install separately on Colab/GPU: pip install mamba-ssm causal-conv1d
 # The repo also ships a pure-PyTorch fallback so it runs on CPU without these.

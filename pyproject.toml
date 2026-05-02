@@ -19,6 +19,7 @@ dependencies = [
     "datasets>=2.18",
     "einops>=0.7",
     "sacrebleu>=2.4",
+    "opencc>=1.1.6",
 ]
 
 [project.optional-dependencies]

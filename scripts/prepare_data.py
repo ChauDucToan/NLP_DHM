@@ -6,12 +6,24 @@ since OPUS-100 does not actually contain a zh-vi pair.
 
 Available presets (chosen via ``--preset``):
 
-* ``tiny``    — TED2020 only (~ 50 k pairs, ~ 1 MB).         Good for smoke tests.
-* ``small``   — TED2020 + WikiMatrix + bible-uedin
-                (~ 200 k pairs, ~ 25 MB).                    Default; OK on free Colab.
-* ``medium``  — small + OpenSubtitles vi-zh_cn
-                (~ 3 M pairs, ~ 65 MB zip).                  Best quality vs. size.
-* ``large``   — medium + NLLB / CCMatrix (~ 30 M pairs).     For full-corpus runs.
+* ``tiny``      — TED2020 only (~ 50 k pairs, ~ 1 MB).         Good for smoke tests.
+* ``small``     — TED2020 + WikiMatrix + bible-uedin
+                  (~ 200 k pairs, ~ 25 MB).                    Bible-heavy (~14%).
+* ``everyday``  — TED2020 + WikiMatrix + OpenSubtitles + NLLB + bible-uedin
+                  (all capped) (~ 225 k pairs, ~ 700 MB NLLB download).
+                                                               **Default.**
+                  Bible only ~3% of mix; OpenSubtitles adds conversational
+                  vocabulary (everyday phrases, greetings); NLLB adds
+                  web-mined diverse domains (news, tourism, narrative).
+                  Requires ``zh_normalize_simplified`` + ``zh_filter_cantonese``
+                  (defaults) — NLLB has ~14% Traditional zh which OpenCC
+                  converts on the fly.
+* ``medium``    — small + OpenSubtitles vi-zh_cn (~ 3 M pairs, ~ 65 MB zip).
+* ``large``     — medium + NLLB / CCMatrix (~ 30 M pairs).     For full-corpus runs.
+
+Note: other zh-vi corpora on OPUS (Tatoeba, QED, ALT, NeuLab-TedTalks,
+wikimedia) are either unavailable or have a corrupted Chinese side
+(many characters dropped during alignment) and are intentionally excluded.
 
 You can also use ``--custom-jsonl path/to/your.jsonl`` to skip downloads
 and use your own corpus, where each line is ``{"zh": "...", "vi": "..."}``.
@@ -39,6 +51,39 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bi_mamba_mt.data import Pair, basic_clean, pair_ok, write_jsonl
 from bi_mamba_mt.utils import load_yaml
+
+# Optional Traditional→Simplified normalization (recommended for zh-vi corpora
+# because OPUS zh-vi sources are heterogeneous: TED2020 is Cantonese in
+# Traditional script, bible-uedin is Traditional, WikiMatrix is mixed,
+# OpenSubtitles vi-zh_cn is Simplified). Without normalization the model is
+# trained on 4 different language varieties on the zh side which produces
+# stylistically inconsistent translations.
+try:
+    import opencc  # type: ignore
+    _OPENCC_T2S = opencc.OpenCC("t2s")
+except ImportError:  # pragma: no cover
+    _OPENCC_T2S = None
+
+
+# Cantonese-only characters (effectively absent from Mandarin written text).
+# Pairs whose zh side contains any of these are dropped — they are written
+# in Cantonese (粵語), not Mandarin, and would teach the model the wrong
+# language. Curated list:
+#   嘅 (possessive de), 哋 (plural marker), 啲 (some / a bit), 咁 (so / such),
+#   喺 (at / in), 嗰 (that), 咗 (perfective le), 佢 (3rd-person pronoun),
+#   嚟 (come / lai), 㗎 (emphasis particle), 噉 (so / like that), 嘞 (modal).
+_CANTONESE_PARTICLES = frozenset("嘅哋啲咁喺嗰咗佢嚟㗎噉嘞")
+
+
+def _looks_cantonese(zh: str) -> bool:
+    return any(c in _CANTONESE_PARTICLES for c in zh)
+
+
+def _normalize_zh(zh: str) -> str:
+    """Convert Traditional Chinese to Simplified, leaving Simplified untouched."""
+    if _OPENCC_T2S is None:
+        return zh
+    return _OPENCC_T2S.convert(zh)
 
 
 # ---------------------------------------------------------------------
@@ -93,10 +138,17 @@ SOURCES: dict[str, OpusSource] = {
 }
 
 PRESETS: dict[str, list[str]] = {
-    "tiny":   ["ted2020"],
-    "small":  ["ted2020", "wikimatrix", "bible_uedin"],
-    "medium": ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles"],
-    "large":  ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles", "nllb"],
+    "tiny":     ["ted2020"],
+    "small":    ["ted2020", "wikimatrix", "bible_uedin"],
+    # `everyday` is the recommended default: bible-uedin gets a tight cap (~3%
+    # of the mix) so the model is not biased toward biblical register,
+    # OpenSubtitles is included (capped) for conversational vocabulary, and
+    # NLLB (capped) provides web-mined diverse domains (news, tourism,
+    # narrative). With OpenCC normalization + Cantonese filter enabled the
+    # heterogeneous zh side of NLLB (~14% Trad) is normalised to Simplified.
+    "everyday": ["ted2020", "wikimatrix", "opensubtitles", "nllb", "bible_uedin"],
+    "medium":   ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles"],
+    "large":    ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles", "nllb"],
 }
 
 
@@ -129,7 +181,20 @@ def download(url: str, dest: Path, timeout: int = 300) -> None:
     print(f"  saved:       {dest}  ({dest.stat().st_size/1e6:.1f} MB)")
 
 
-def iter_pairs_from_opus_zip(zip_path: Path, src: OpusSource) -> Iterable[Pair]:
+def iter_pairs_from_opus_zip(
+    zip_path: Path,
+    src: OpusSource,
+    *,
+    normalize_zh: bool = True,
+    filter_cantonese: bool = True,
+) -> Iterable[Pair]:
+    """Yield ``Pair`` rows from an OPUS Moses-format zip.
+
+    ``normalize_zh`` runs Traditional→Simplified normalisation on the zh side
+    using OpenCC. ``filter_cantonese`` drops pairs whose zh side contains
+    Cantonese-only particles (嘅/哋/啲/咁/喺/嗰/咗) — these are typically
+    Cantonese sentences mis-labelled as zh on OPUS (notably TED2020.vi-zh).
+    """
     with zipfile.ZipFile(zip_path) as z:
         names = set(z.namelist())
         if src.vi_member not in names or src.zh_member not in names:
@@ -146,6 +211,10 @@ def iter_pairs_from_opus_zip(zip_path: Path, src: OpusSource) -> Iterable[Pair]:
                 zh = basic_clean(zh_line)
                 if not vi or not zh:
                     continue
+                if filter_cantonese and _looks_cantonese(zh):
+                    continue
+                if normalize_zh:
+                    zh = _normalize_zh(zh)
                 yield Pair(zh=zh, vi=vi)
 
 
@@ -170,7 +239,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--config", default="configs/bi_mamba_55m.yaml")
     p.add_argument(
         "--preset",
-        default="small",
+        default="everyday",
         choices=list(PRESETS.keys()),
         help="Set of OPUS sources to download (ignored if --custom-jsonl is set).",
     )
@@ -211,10 +280,19 @@ def main() -> None:
     script_check = bool(data_cfg.get("script_check", True))
     min_zh_vi_ratio = float(data_cfg.get("min_zh_vi_ratio", 0.10))
     max_zh_vi_ratio = float(data_cfg.get("max_zh_vi_ratio", 1.20))
+    normalize_zh = bool(data_cfg.get("zh_normalize_simplified", True))
+    filter_cantonese = bool(data_cfg.get("zh_filter_cantonese", True))
+    if normalize_zh and _OPENCC_T2S is None:
+        print(
+            "  WARNING: zh_normalize_simplified=True but `opencc` is not installed; "
+            "Traditional zh sentences will not be converted. Install with `pip install opencc`."
+        )
+        normalize_zh = False
     print(
         f"Filter: min_len={min_len} max_chars={max_chars} "
         f"zh/vi ratio=[{min_zh_vi_ratio:.2f}, {max_zh_vi_ratio:.2f}] "
-        f"script_check={script_check}"
+        f"script_check={script_check} "
+        f"zh_normalize_simplified={normalize_zh} zh_filter_cantonese={filter_cantonese}"
     )
 
     def _keep(zh: str, vi: str) -> bool:
@@ -269,7 +347,12 @@ def main() -> None:
             cap = caps.get(key)
             n_src_dropped = 0
             src_pairs: List[Pair] = []
-            for p_ in iter_pairs_from_opus_zip(zip_path, src):
+            for p_ in iter_pairs_from_opus_zip(
+                zip_path,
+                src,
+                normalize_zh=normalize_zh,
+                filter_cantonese=filter_cantonese,
+            ):
                 k = (p_.zh, p_.vi)
                 if k in seen:
                     continue

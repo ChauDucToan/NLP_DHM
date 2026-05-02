@@ -41,17 +41,24 @@ tokenizer:
 
 data:
   # Data source — direct download from OPUS (no HuggingFace dataset needed).
-  # Pick a preset via `prepare_data.py --preset {tiny|small|medium|large}` or
-  # override with `--sources ted2020 wikimatrix opensubtitles ...`.
+  # Pick a preset via `prepare_data.py --preset {tiny|small|everyday|medium|large}`
+  # or override with `--sources ted2020 wikimatrix opensubtitles ...`.
   #
-  # NOTE on preset choice: empirically `small` (TED2020 + WikiMatrix +
-  # bible-uedin, ~225k clean pairs) gives the *highest* test BLEU on the
-  # default test split. `medium` adds OpenSubtitles vi-zh_cn which is huge
-  # but extremely noisy and conversational, and the test split inherits
-  # that noise → BLEU collapses to ~1–2. If you do want OpenSubtitles, use
-  # ``max_pairs_per_source.opensubtitles`` to cap it (e.g. 100k) so it can
-  # add some conversational variety without drowning out the clean data.
-  preset: "small"             # tiny / small / medium / large
+  # NOTE on preset choice:
+  # `everyday` (default) — TED2020 + WikiMatrix + OpenSubtitles (capped 80k) +
+  #   NLLB (capped 50k) + bible-uedin (capped 6k). Bible is only ~3% of the
+  #   mix so the model is not biased toward biblical register; OpenSubtitles
+  #   supplies conversational vocabulary so phrases like "hello world"
+  #   translate naturally instead of as literary/scriptural variants; NLLB
+  #   (web-mined) adds news / tourism / narrative diversity. NLLB triggers a
+  #   one-time ~700 MB download — drop it from `--sources` (or use the
+  #   `small` preset) if you want a leaner setup.
+  # `small` — original TED2020 + WikiMatrix + bible-uedin (no per-source caps
+  #   used to be applied → bible was ~14% of clean data → biased translation).
+  # `medium` — small + uncapped OpenSubtitles. Without caps OpenSubtitles
+  #   dominates 88% of the pool and BLEU collapses on the test split. Use
+  #   `max_pairs_per_source.opensubtitles` to cap it.
+  preset: "everyday"          # tiny / small / everyday / medium / large
   raw_dir: "data/raw"
   processed_dir: "data/processed"
   tokenizer_dir: "data/tokenizer"
@@ -66,17 +73,35 @@ data:
   # Strict per-language script filter (zh must be majority CJK; vi must be Latin).
   # This kicks out the worst noise from WikiMatrix.
   script_check: true
+  # Normalise zh to Simplified Mandarin via OpenCC (Trad→Simp). The OPUS zh-vi
+  # corpora are heterogeneous: TED2020 is Cantonese in Traditional script,
+  # bible-uedin is Traditional, WikiMatrix is mixed Trad/Simp/Classical, only
+  # OpenSubtitles vi-zh_cn is Simplified. Without this step the model learns
+  # an inconsistent style and translates everyday phrases in the wrong register.
+  zh_normalize_simplified: true
+  # Drop pairs whose zh side contains Cantonese-only particles (嘅/哋/啲/咁/喺/嗰/咗).
+  # ~70% of TED2020.vi-zh.zh is actually Cantonese (粵語) mis-labelled as zh —
+  # without this filter the model is partly trained on Cantonese, not Mandarin.
+  zh_filter_cantonese: true
   # zh-vi character-length ratio bounds. Empirically clean OPUS pairs sit at
   # len(zh)/len(vi) ≈ 0.20–0.60 (vi has spaces + diacritics so it's longer).
   min_zh_vi_ratio: 0.10
   max_zh_vi_ratio: 1.20
   # Per-source caps (only takes effect when the source is in the preset).
   # Set the noisy/large sources to a sane upper bound so they cannot dominate.
+  # Defaults are tuned for the `everyday` preset (~225k clean pairs total
+  # *after* Cantonese filter + Trad→Simp normalisation):
+  #   TED2020 ~4k  (uncapped — most of TED2020.zh is Cantonese, dropped)
+  #   WikiMatrix ~85k (cap 100k)
+  #   OpenSubtitles ~80k (cap 80k, conversational)
+  #   NLLB ~50k (cap 50k, web-mined news/tourism/narrative)
+  #   bible-uedin ~6k (cap 6k → ~2.7% of mix).
   max_pairs_per_source:
-    opensubtitles: 100000     # cap conversational subtitles to 100k
-    wikimatrix:    100000     # cap WikiMatrix to 100k (top-LASER pairs)
-    nllb:          200000     # cap NLLB pseudo-aligned data
-    # ted2020 / bible_uedin left uncapped — they're small + clean
+    opensubtitles: 80000      # cap conversational subtitles to 80k (~36% of mix)
+    wikimatrix:    100000     # cap WikiMatrix to 100k (top-LASER pairs, ~38%)
+    nllb:          50000      # cap NLLB web-mined to 50k (~22%, broad domains)
+    bible_uedin:   6000       # cap bible-uedin to 6k → ~3% of mix (was ~14%)
+    # ted2020 left uncapped — most of it is Cantonese and gets filtered out
 
 train:
   output_dir: "runs/bi_mamba_55m"
