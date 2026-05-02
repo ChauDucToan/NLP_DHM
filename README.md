@@ -143,16 +143,23 @@ Tham số hữu ích:
 * `--preset {tiny|small|everyday|medium|large}` — chọn bộ corpus OPUS:
   * `tiny`     — TED2020 (~50 K, 1 MB)
   * `small`    — TED2020 + WikiMatrix + bible-uedin (~200 K) — bible chiếm ~14%, model dịch lệch giọng Kinh Thánh
-  * `everyday` — TED2020 + WikiMatrix + OpenSubtitles (80k) + NLLB (50k) + bible-uedin (6k) (~225 K) — **mặc định**, bible ~3%, đa dạng domain (hội thoại, news, du lịch, narrative)
+  * `everyday` — (v2) TED2020 + WikiMatrix + OpenSubtitles (cap 20k) + bible-uedin (cap 6k) (~115 K) — **mặc định**, bible ~5%, tiếng hội thoại vừa phải
   * `medium`   — small + OpenSubtitles uncapped (~3 M) — KHÔNG khuyến nghị nếu không cap
-  * `large`    — medium + NLLB (~30 M, 700 MB)
+  * `large`    — medium + NLLB (~30 M, 700 MB) — NLLB có nhiều noise pseudo-alignment
 * `--sources ted2020 wikimatrix opensubtitles` — danh sách nguồn tự chọn.
 
-**Vì sao `everyday` là mặc định:** preset `small` cũ làm bible-uedin chiếm
-~14% pool sạch → model dịch "Hello, world" thành "Ngày tốt, thế giới"
-(văn phong Kinh Thánh) thay vì "Xin chào, thế giới". `everyday` giảm
-bible xuống ~3% qua `max_pairs_per_source.bible_uedin = 6000` và thêm
-OpenSubtitles cap 80k để có hội thoại đời thường.
+**Vì sao `everyday` là mặc định (v2):** preset `small` cũ làm bible-uedin
+chiếm ~14% pool sạch → model dịch "Hello, world" thành "Ngày tốt, thế
+giới" (văn phong Kinh Thánh) thay vì "Xin chào, thế giới". `everyday`
+giảm bible xuống ~5% qua `max_pairs_per_source.bible_uedin = 6000` và thêm
+OpenSubtitles (liều nhỏ, cap 20k) để có hội thoại đời thường.
+
+> **Lưu ý về phiên bản của `everyday`:** một bản v1 trước đó (NLLB cap 50k +
+> OpenSubtitles cap 80k → ~225K cặp) có vẻ đa dạng hơn nhưng trên thực
+> tế train ra **BLEU zh→vi 5.96** so với baseline 47.89 (`small`). NLLB
+> pseudo-alignment + OpenSubtitles fragments gây nhiễu tràn ngập signal.
+> v2 hiện tại bỏ NLLB và giảm OpenSubtitles để giữ baseline chất lượng,
+> vẫn đạt mục tiêu debias bible.
 
 **Chuẩn hoá phương ngữ tiếng Trung (mới):** các nguồn OPUS zh-vi không cùng
 một thứ tiếng — TED2020.vi-zh.zh thực ra là **tiếng Quảng Đông viết phồn
@@ -166,12 +173,11 @@ chỉ OpenSubtitles vi-zh_cn là Mandarin Giản thể đúng nghĩa. Pipeline m
   phía zh, để toàn bộ pool nhất quán Mandarin Giản thể.
 
 Sau khi áp filter + normalize, TED2020 còn ~3k cặp (sạch Mandarin),
-WikiMatrix giữ ~85k, OpenSubtitles 80k, NLLB 50k (web-mined đa domain),
-bible 6k → tổng ~225k pairs sạch + nhất quán phương ngữ.
+WikiMatrix giữ ~85k, OpenSubtitles 20k (liều nhỏ), bible 6k → tổng ~115k
+pairs sạch + nhất quán phương ngữ.
 
-> NLLB tải ~700 MB (zip) và mất 1–2 phút stream qua filter + OpenCC trên
-> Colab. Nếu muốn skip NLLB, đặt `cfg['data']['preset']='small'` hoặc
-> bỏ `'nllb'` khỏi `--sources` thủ công.
+> Nếu muốn thử NLLB (web-mined đa domain) mặc dù có noise, dùng preset
+> `large` hoặc thêm `'nllb'` vào `--sources` thủ công. NLLB tải ~700 MB.
 
 **Lưu ý quan trọng về `medium` / `large` không cap**: OpenSubtitles vi-zh_cn
 (chiếm ~85% medium) và NLLB là parallel pseudo-aligned, có rất nhiều noise
