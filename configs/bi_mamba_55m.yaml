@@ -41,15 +41,18 @@ tokenizer:
 
 data:
   # Data source — direct download from OPUS (no HuggingFace dataset needed).
-  # Pick a preset via `prepare_data.py --preset {tiny|small|medium|large}` or
-  # override with `--sources ted2020 wikimatrix opensubtitles ...`.
+  # Pick a preset via `prepare_data.py --preset {tiny|small|everyday|medium|large}`
+  # or override with `--sources ted2020 wikimatrix opensubtitles ...`.
   #
   # NOTE on preset choice:
   # `everyday` (default) — TED2020 + WikiMatrix + OpenSubtitles (capped 80k) +
-  #   bible-uedin (capped 8k). Bible is only ~3% of the mix so the model is
-  #   not biased toward biblical register; OpenSubtitles supplies
-  #   conversational vocabulary so phrases like "hello world" translate
-  #   naturally instead of as literary/scriptural variants.
+  #   NLLB (capped 50k) + bible-uedin (capped 6k). Bible is only ~3% of the
+  #   mix so the model is not biased toward biblical register; OpenSubtitles
+  #   supplies conversational vocabulary so phrases like "hello world"
+  #   translate naturally instead of as literary/scriptural variants; NLLB
+  #   (web-mined) adds news / tourism / narrative diversity. NLLB triggers a
+  #   one-time ~700 MB download — drop it from `--sources` (or use the
+  #   `small` preset) if you want a leaner setup.
   # `small` — original TED2020 + WikiMatrix + bible-uedin (no per-source caps
   #   used to be applied → bible was ~14% of clean data → biased translation).
   # `medium` — small + uncapped OpenSubtitles. Without caps OpenSubtitles
