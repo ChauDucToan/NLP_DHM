@@ -33,7 +33,8 @@ bi-mamba-zh-vi/
 │   ├── train_tokenizer.py        # train SentencePiece BPE (chia sẻ zh+vi)
 │   ├── train.py                  # vòng lặp train chính (EMA + length-bucket sampler)
 │   ├── avg_ckpts.py              # Polyak averaging của N checkpoint cuối
-│   ├── evaluate.py               # SacreBLEU + chrF cả hai chiều, per-direction LP
+│   ├── evaluate.py               # SacreBLEU + chrF cả hai chiều, per-direction LP, length-bucket
+│   ├── sweep_decode.py           # Grid-sweep beam × length_penalty → CSV
 │   └── translate.py              # CLI dịch (single / batch)
 ├── src/
 │   └── bi_mamba_mt/              # package Python
@@ -269,7 +270,39 @@ python scripts/evaluate.py --config configs/bi_mamba_55m.yaml \
 
 `length_penalty` được đọc từ config theo từng chiều
 (`zh2vi: 1.00`, `vi2zh: 0.90` mặc định). Override bằng
-`--length-penalty 1.0` nếu muốn.
+`--length-penalty 1.0` (áp cả hai chiều) hoặc
+`--length-penalty-zh2vi` / `--length-penalty-vi2zh` (từng chiều) nếu muốn.
+
+Thêm `--length-buckets` để in BLEU/chrF theo bucket độ dài nguồn
+(`short: <20`, `medium: 20–50`, `long: ≥50` ký tự):
+
+```bash
+python scripts/evaluate.py --config configs/bi_mamba_55m.yaml \
+    --checkpoint runs/bi_mamba_55m/best_ema.pt \
+    --num-samples 5000 --beam-size 4 --length-buckets
+```
+
+### 5.5b. Grid-sweep decoding → CSV
+
+Để tìm `(beam, length_penalty)` tối ưu mà không phải chạy
+`evaluate.py` thủ công nhiều lần:
+
+```bash
+python scripts/sweep_decode.py \
+    --config configs/bi_mamba_55m.yaml \
+    --checkpoint runs/bi_mamba_55m/best_ema.pt \
+    --num-samples 2000 \
+    --beams 1 2 4 6 \
+    --lp-zh2vi 0.8 0.9 1.0 1.1 1.2 \
+    --lp-vi2zh 0.6 0.8 0.9 1.0 \
+    --out runs/bi_mamba_55m/sweep.csv
+```
+
+Grid chạy độc lập cho mỗi chiều (`beam × lp_zh2vi` cho zh→vi,
+`beam × lp_vi2zh` cho vi→zh) nên không bị blowup cartesian.
+CSV có cột `direction,beam,length_penalty,bucket,n,bleu,chrf`;
+thêm `--length-buckets` để đính kèm cả dòng per-bucket.
+Checkpoint chỉ load **một lần**.
 
 ### 5.6. Dịch
 
