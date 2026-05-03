@@ -1,0 +1,108 @@
+# Hybrid Mamba-Attention encoder-decoder — Chinese↔Vietnamese translation.
+#
+# Bi-Mamba encoder (re-uses bi_mamba_mt.modules.bi_mamba.BiMambaBlock) +
+# vanilla Transformer decoder (nn.TransformerDecoder, masked self-attn +
+# cross-attn + FFN). Target ~32-36M params, comparable to Bi-Mamba 32.4M
+# and Transformer 30.8M, so any BLEU gap reflects the architecture.
+#
+# Param budget (vocab=16k, d_model=384, 5+5 layers):
+#   embedding (shared/tied): 16,000 × 384            ≈  6.1M
+#   encoder (5 × Bi-Mamba + FFN d_ff=960)            ≈ 14.8M
+#   decoder (5 × self + cross + FFN d_ff=1536)       ≈ 11.8M
+#   final norms                                      ≈   0M
+#   total                                            ≈ 32.7M
+#
+# Reuses the SAME `data:` and `tokenizer:` sections as Bi-Mamba and
+# Transformer baselines so the comparison is apples-to-apples — only the
+# model and the train/eval `output_dir` differ.
+
+model:
+  vocab_size: 16000
+  d_model: 384
+  d_state: 16
+  d_conv: 4
+  expand: 2
+  n_encoder_layers: 5
+  n_decoder_layers: 5
+  n_decoder_heads: 8
+  encoder_d_ff: 960          # smaller than Transformer's 2048 because Bi-Mamba
+                             # encoder already burns ~2.2M params per layer.
+  decoder_d_ff: 1536
+  dropout: 0.1
+  tie_embeddings: true
+  max_src_len: 256
+  max_tgt_len: 256
+  pad_id: 0
+  bos_id: 1
+  eos_id: 2
+  unk_id: 3
+  zh2vi_id: 4
+  vi2zh_id: 5
+
+tokenizer:
+  type: sentencepiece
+  model_type: bpe
+  vocab_size: 16000
+  character_coverage: 1.0
+  user_defined_symbols: ["<2vi>", "<2zh>"]
+
+data:
+  preset: "everyday"
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  tokenizer_dir: "data/tokenizer"
+  max_train_pairs: 400000
+  max_valid_pairs: 5000
+  max_test_pairs: 5000
+  min_len: 1
+  max_len: 250
+  bidirectional: true
+  seed: 42
+  script_check: true
+  zh_normalize_simplified: true
+  zh_filter_cantonese: true
+  min_zh_vi_ratio: 0.10
+  max_zh_vi_ratio: 1.20
+  max_pairs_per_source:
+    opensubtitles: 20000
+    wikimatrix:    100000
+    nllb:          20000
+    bible_uedin:   6000
+  min_score_per_source:
+    nllb: 1.10
+
+train:
+  output_dir: "runs/hybrid_mamba_attention"
+  batch_size: 128
+  grad_accum_steps: 1
+  max_steps: 60000
+  warmup_steps: 3000
+  lr: 4.0e-4                  # between Bi-Mamba (3e-4) and Transformer (5e-4).
+  min_lr: 1.0e-5
+  weight_decay: 0.05
+  betas: [0.9, 0.98]
+  eps: 1.0e-9
+  grad_clip: 1.0
+  label_smoothing: 0.08
+  log_every: 50
+  eval_every: 1000
+  save_every: 1000
+  amp_dtype: "bf16"
+  num_workers: 4
+  pin_memory: true
+  seed: 42
+  length_bucket: true
+  bucket_pool_factor: 100
+  ema: true
+  ema_decay: 0.9990
+  early_stopping_patience: 10  # patience=6 stopped Bi-Mamba run while raw val_loss
+                               # was still improving; loosen for the hybrid run.
+  early_stopping_min_delta: 0.0
+
+eval:
+  beam_size: 4
+  length_penalty:
+    zh2vi: 1.00
+    vi2zh: 0.90
+  max_decode_len: 256
+  num_samples: 5000

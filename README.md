@@ -20,25 +20,30 @@ train mô hình, đánh giá SacreBLEU, dịch demo — và chạy được:
 bi-mamba-zh-vi/
 ├── README.md                     # tài liệu này
 ├── LICENSE                       # MIT
-├── pyproject.toml                # đóng gói packages: mt_base, bi_mamba_mt, transformer_mt
+├── pyproject.toml                # đóng gói packages: mt_base, bi_mamba_mt, transformer_mt, hybrid_mt
 ├── requirements.txt              # phụ thuộc Python
 ├── configs/
-│   ├── bi_mamba_55m.yaml         # Bi-Mamba 32.4M (model + data + train + eval)
-│   └── transformer_30m.yaml      # Transformer baseline 30.8M (cùng data + tokenizer)
+│   ├── bi_mamba_55m.yaml             # Bi-Mamba 32.4M (model + data + train + eval)
+│   ├── transformer_30m.yaml          # Transformer baseline 30.8M (cùng data + tokenizer)
+│   └── hybrid_mamba_attention.yaml   # ★ Hybrid Bi-Mamba enc + Transformer dec ~32.7M
 ├── data/                         # nơi script ghi dữ liệu (đã .gitignore)
 │   └── .gitkeep
 ├── notebooks/
-│   ├── bi_mamba_zh_vi_colab.ipynb        # train Bi-Mamba end-to-end trên Colab
-│   └── transformer_zh_vi_colab.ipynb     # train Transformer baseline (so sánh)
+│   ├── bi_mamba_zh_vi_colab.ipynb         # train Bi-Mamba end-to-end trên Colab
+│   ├── transformer_zh_vi_colab.ipynb      # train Transformer baseline (so sánh)
+│   ├── hybrid_mamba_zh_vi_colab.ipynb     # ★ train Hybrid Mamba-Attention
+│   └── multi_model_zh_vi_demo.ipynb       # ★ demo linh hoạt cả 3 model trong 1 file
 ├── scripts/
 │   ├── prepare_data.py               # tải + lọc + chia split (script-id + length filter)
 │   ├── train_tokenizer.py            # train SentencePiece BPE (chia sẻ zh+vi)
 │   ├── train.py                      # train Bi-Mamba
 │   ├── train_transformer.py          # train Transformer baseline
+│   ├── train_hybrid.py               # ★ train Hybrid Mamba-Attention
 │   ├── avg_ckpts.py                  # Polyak averaging của N checkpoint cuối
 │   ├── evaluate.py                   # eval Bi-Mamba (per-direction LP, length-bucket)
 │   ├── evaluate_transformer.py       # eval Transformer (cùng CLI)
-│   ├── sweep_decode.py               # Grid-sweep beam × length_penalty → CSV (Bi-Mamba)
+│   ├── evaluate_hybrid.py            # ★ eval Hybrid (strict checkpoint loading)
+│   ├── sweep_decode.py               # Grid-sweep beam × LP → CSV (--model-kind {mamba,hybrid,transformer})
 │   └── translate.py                  # CLI dịch (single / batch)
 ├── src/
 │   ├── mt_base/                  # ★ Shared (tokenizer / data / trainer / eval / translate)
@@ -54,20 +59,24 @@ bi-mamba-zh-vi/
 │   │   ├── model.py              # BiMambaTranslator (encoder + decoder)
 │   │   ├── modules/              # mamba_block, bi_mamba, cross_attention, decoder_block
 │   │   └── {tokenizer,data,trainer,translate,evaluator,utils}.py  # re-export shims
-│   └── transformer_mt/           # ★ Vanilla Transformer baseline
+│   ├── transformer_mt/           # ★ Vanilla Transformer baseline
+│   │   ├── __init__.py
+│   │   └── model.py              # TransformerTranslator (cùng API như BiMambaTranslator)
+│   └── hybrid_mt/                # ★ Hybrid Bi-Mamba enc + Transformer dec
 │       ├── __init__.py
-│       └── model.py              # TransformerTranslator (cùng API như BiMambaTranslator)
+│       └── model.py              # HybridMambaAttentionTranslator (cùng API)
 └── tests/
     ├── test_model.py
     ├── test_tokenizer.py
-    └── test_transformer.py
+    ├── test_transformer.py
+    └── test_hybrid.py
 ```
 
 ---
 
 ## 2. Kiến trúc
 
-Dự án có **2 mô hình** dùng chung tokenizer + data + training loop:
+Dự án có **3 mô hình** dùng chung tokenizer + data + training loop, để ablation kiến trúc vs data:
 
 ### 2.1 Bi-Mamba (~32M tham số, v3)
 
@@ -107,6 +116,32 @@ cho code.
 Mục đích: **baseline so sánh** trên cùng data + cùng tokenizer + cùng training loop. Nếu Transformer đạt BLEU cao hơn rõ rệt → vấn đề nằm ở kiến trúc Bi-Mamba seq2seq. Nếu Transformer cũng kẹt cùng mức → vấn đề là data/tokenizer/preprocessing.
 
 Xem `configs/transformer_30m.yaml` + `src/transformer_mt/model.py`. Train bằng `scripts/train_transformer.py`, eval bằng `scripts/evaluate_transformer.py`.
+
+### 2.3 Hybrid Mamba-Attention (~32.7M tham số)
+
+| Thành phần                     | Kích thước                                              |
+|--------------------------------|----------------------------------------------------------|
+| Vocab (SentencePiece BPE)      | 16 000 (chia sẻ chung)                                   |
+| `d_model`                      | 384                                                      |
+| Encoder                        | 5 × **Bi-Mamba** + FFN(960)                              |
+| Decoder                        | 5 × **Transformer dec** (self + cross-attn + FFN(1536)) |
+| Tổng tham số                   | **≈ 32.7 M** (tied input + lm_head)                      |
+
+Mục đích chẩn đoán **ở đâu Bi-Mamba thua Transformer**:
+
+* Hybrid ≫ Bi-Mamba và ≈ Transformer ⇒ decoder Mamba là bottleneck (cross-attn).
+* Hybrid ≈ Bi-Mamba và ≪ Transformer ⇒ encoder Bi-Mamba yếu cho MT.
+* Cả 3 ≈ nhau ⇒ bottleneck là data/tokenizer.
+
+**Init guard:** module init không gọi `self.apply()` toàn cục — Mamba có
+`dt_proj.bias`, `A_log`, `D` được init đặc biệt và sẽ bị phá nếu re-init.
+`HybridMambaAttentionTranslator._init_non_mamba_weights` collect `id()` của
+mọi module thuộc `MambaBlock` subtree và skip chúng. Test guard:
+`tests/test_hybrid.py::test_hybrid_init_does_not_touch_mamba_internals`.
+
+Xem `configs/hybrid_mamba_attention.yaml` + `src/hybrid_mt/model.py`. Train bằng `scripts/train_hybrid.py`, eval bằng `scripts/evaluate_hybrid.py`.
+
+Demo nhanh cả 3 model trong 1 file: `notebooks/multi_model_zh_vi_demo.ipynb` — đổi `MODEL_KIND` ở Cell 3 (`'mamba' | 'hybrid' | 'transformer'`).
 
 ---
 
