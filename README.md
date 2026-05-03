@@ -191,8 +191,9 @@ LASER ≥ 1.10), bible 6k → tổng ~135k pairs sạch + nhất quán phương 
 > giảm dần). Cấu hình `data.min_score_per_source.nllb = 1.10` chỉ giữ
 > phần đầu high-confidence (~10% pool). Nâng lên 1.20 cho cleaner pool ở
 > mức ~1–2%; hạ xuống 1.05 cho thêm data nhưng nhiễu hơn. Để dùng NLLB
-> không filter (kiểu cũ), bỏ entry `nllb` ra khỏi `min_score_per_source`
-> hoặc dùng preset `large`.
+> không filter (kiểu cũ), bỏ entry `nllb` ra khỏi `min_score_per_source`.
+> (Lưu ý: `min_score_per_source` áp dụng cho mọi preset có chứa NLLB,
+> kể cả `large` — chỉ thay preset không tắt được score filter.)
 
 **Lưu ý quan trọng về `medium` / `large` không cap**: OpenSubtitles vi-zh_cn
 (chiếm ~85% medium) và NLLB là parallel pseudo-aligned, có rất nhiều noise

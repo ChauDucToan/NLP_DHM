@@ -39,6 +39,7 @@ Run::
 from __future__ import annotations
 
 import argparse
+import contextlib
 import io
 import json
 import random
@@ -229,11 +230,13 @@ def iter_pairs_from_opus_zip(
             )
         if use_scores:
             print(f"  applying score filter: keep pairs with score >= {min_score}")
-        with z.open(src.vi_member) as fv, z.open(src.zh_member) as fz:
+        with contextlib.ExitStack() as stack:
+            fv = stack.enter_context(z.open(src.vi_member))
+            fz = stack.enter_context(z.open(src.zh_member))
             viw = io.TextIOWrapper(fv, encoding="utf-8")
             zhw = io.TextIOWrapper(fz, encoding="utf-8")
             if use_scores:
-                fs = z.open(src.score_member)  # type: ignore[arg-type]
+                fs = stack.enter_context(z.open(src.score_member))  # type: ignore[arg-type]
                 sw = io.TextIOWrapper(fs, encoding="utf-8")
                 line_iter = zip(viw, zhw, sw)
             else:
