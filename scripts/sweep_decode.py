@@ -1,5 +1,14 @@
 """Grid-sweep beam size × length penalty and write BLEU/chrF to CSV.
 
+Supports all three model architectures via ``--model-kind``:
+
+* ``mamba`` (default — backward compatible) →
+  :class:`bi_mamba_mt.model.BiMambaTranslator`
+* ``hybrid`` →
+  :class:`hybrid_mt.model.HybridMambaAttentionTranslator`
+* ``transformer`` →
+  :class:`transformer_mt.model.TransformerTranslator`
+
 The sweep is run **per direction**: for ``zh2vi`` we iterate ``beam × lp_zh2vi``
 values, for ``vi2zh`` we iterate ``beam × lp_vi2zh``. Directions are independent
 so we avoid the full cartesian product (which would waste compute).
@@ -30,19 +39,27 @@ from pathlib import Path
 from typing import List, Sequence
 
 import torch
+import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from bi_mamba_mt.data import read_jsonl
-from bi_mamba_mt.evaluator import DEFAULT_LENGTH_BUCKETS, evaluate
-from bi_mamba_mt.model import BiMambaTranslator, ModelConfig
-from bi_mamba_mt.tokenizer import Tokenizer
-from bi_mamba_mt.utils import get_device, load_yaml
+from mt_base.data import read_jsonl
+from mt_base.evaluator import DEFAULT_LENGTH_BUCKETS, evaluate
+from mt_base.tokenizer import Tokenizer
+from mt_base.utils import get_device, load_yaml
+
+MODEL_KINDS = ("mamba", "hybrid", "transformer")
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="configs/bi_mamba_55m.yaml")
+    p.add_argument(
+        "--model-kind",
+        choices=MODEL_KINDS,
+        default="mamba",
+        help="Which model architecture this checkpoint is for (default mamba).",
+    )
     p.add_argument(
         "--checkpoint",
         required=True,
@@ -85,13 +102,30 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _build_model(model_kind: str, model_cfg_dict: dict) -> nn.Module:
+    """Dispatch model construction by ``--model-kind``."""
+    if model_kind == "mamba":
+        from bi_mamba_mt.model import BiMambaTranslator, ModelConfig
+        return BiMambaTranslator(ModelConfig(**model_cfg_dict))
+    if model_kind == "hybrid":
+        from hybrid_mt.model import HybridMambaAttentionTranslator, ModelConfig
+        return HybridMambaAttentionTranslator(ModelConfig(**model_cfg_dict))
+    if model_kind == "transformer":
+        from transformer_mt.model import ModelConfig, TransformerTranslator
+        return TransformerTranslator(ModelConfig(**model_cfg_dict))
+    raise ValueError(f"Unknown --model-kind: {model_kind!r}")
+
+
 def _load(
-    checkpoint: Path, cfg: dict, device: torch.device
-) -> tuple[BiMambaTranslator, Tokenizer, list]:
-    print(f"Loading checkpoint {checkpoint}")
+    checkpoint: Path,
+    cfg: dict,
+    device: torch.device,
+    model_kind: str,
+) -> tuple[nn.Module, Tokenizer, list]:
+    print(f"Loading checkpoint {checkpoint} ({model_kind})")
     ckpt = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    model_cfg = ModelConfig(**ckpt.get("model_cfg", cfg["model"]))
-    model = BiMambaTranslator(model_cfg).to(device)
+    model_cfg_dict = ckpt.get("model_cfg", cfg["model"])
+    model = _build_model(model_kind, model_cfg_dict).to(device)
     model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
     if ckpt.get("is_ema"):
@@ -164,7 +198,9 @@ def main() -> None:
     cfg = load_yaml(args.config)
     device = get_device()
 
-    model, tokenizer, test_pairs = _load(Path(args.checkpoint), cfg, device)
+    model, tokenizer, test_pairs = _load(
+        Path(args.checkpoint), cfg, device, model_kind=args.model_kind
+    )
     n = args.num_samples or int(cfg["eval"].get("num_samples", 1000))
     test_pairs = test_pairs[:n]
     max_len = int(cfg["eval"].get("max_decode_len", 256))
