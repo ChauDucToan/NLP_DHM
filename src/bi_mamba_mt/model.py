@@ -69,7 +69,7 @@ class EncoderLayer(nn.Module):
 
 
 class BiMambaTranslator(nn.Module):
-    """Bi-Mamba seq2seq translator (~55M parameters with default config)."""
+    """Bi-Mamba seq2seq translator."""
 
     def __init__(self, cfg: ModelConfig) -> None:
         super().__init__()

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bi-mamba-mt"
 version = "0.1.0"
-description = "Bi-Mamba (55M) bidirectional Chinese-Vietnamese machine translation."
+description = "Bi-Mamba bidirectional Chinese-Vietnamese machine translation."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}

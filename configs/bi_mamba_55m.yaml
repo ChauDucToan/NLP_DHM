@@ -162,4 +162,4 @@ eval:
     zh2vi: 1.00
     vi2zh: 0.90
   max_decode_len: 256
-  num_samples: 3000          # bumped from 1000 — stable BLEU/chrF (±0.5 noise)
+  num_samples: 5000          # use the full default test cap for stable BLEU/chrF

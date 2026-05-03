@@ -66,17 +66,17 @@ class TrainConfig:
     batch_size: int = 64
     grad_accum_steps: int = 1
     max_steps: int = 60_000
-    warmup_steps: int = 2_000
-    lr: float = 5.0e-4
+    warmup_steps: int = 3_000
+    lr: float = 3.0e-4
     min_lr: float = 1.0e-5
-    weight_decay: float = 0.1
+    weight_decay: float = 0.05
     betas: tuple[float, float] = (0.9, 0.98)
     eps: float = 1.0e-9
     grad_clip: float = 1.0
-    label_smoothing: float = 0.1
+    label_smoothing: float = 0.08
     log_every: int = 50
-    eval_every: int = 2_000
-    save_every: int = 2_000
+    eval_every: int = 1_000
+    save_every: int = 1_000
     amp_dtype: str = "bf16"
     # Exponential moving average of model weights for inference. Decay of
     # 0.9990 ≈ effective window of 1000 steps; 0.9999 ≈ 10000 steps.
@@ -85,7 +85,7 @@ class TrainConfig:
     # Early stopping. Monitors ``ema_val_loss`` when EMA is enabled (smoother),
     # otherwise ``val_loss``. ``patience`` counts evaluations (each eval step
     # = one tick) without improvement before stopping. Set to 0 to disable.
-    early_stopping_patience: int = 10
+    early_stopping_patience: int = 6
     early_stopping_min_delta: float = 0.0
 
 

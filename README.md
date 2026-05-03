@@ -1,7 +1,7 @@
-# Bi-Mamba 55M — AI dịch song ngữ Trung ↔ Việt
+# Bi-Mamba 32M — AI dịch song ngữ Trung ↔ Việt
 
 Một mô hình dịch song ngữ **Trung → Việt** và **Việt → Trung** dùng kiến trúc
-**Bi-Mamba** (selective state-space model) với khoảng **55 triệu tham số**.
+**Bi-Mamba** (selective state-space model) với khoảng **32 triệu tham số**.
 Repo cung cấp **toàn bộ pipeline từ A đến Z** — tải dữ liệu, train tokenizer,
 train mô hình, đánh giá SacreBLEU, dịch demo — và chạy được:
 
@@ -23,7 +23,7 @@ bi-mamba-zh-vi/
 ├── pyproject.toml                # đóng gói package bi_mamba_mt
 ├── requirements.txt              # phụ thuộc Python
 ├── configs/
-│   └── bi_mamba_55m.yaml         # config 55M (model + tokenizer + data + train + eval)
+│   └── bi_mamba_55m.yaml         # config hiện tại ~32M (model + data + train + eval)
 ├── data/                         # nơi script ghi dữ liệu (đã .gitignore)
 │   └── .gitkeep
 ├── notebooks/
@@ -264,11 +264,11 @@ thắng. EMA + averaging cho +0.5–2 BLEU gần như miễn phí.
 
 ```bash
 python scripts/evaluate.py --config configs/bi_mamba_55m.yaml \
-    --checkpoint runs/bi_mamba_55m/best_ema.pt --num-samples 1000
+    --checkpoint runs/bi_mamba_55m/best_ema.pt --num-samples 5000 --beam-size 4
 ```
 
 `length_penalty` được đọc từ config theo từng chiều
-(`zh2vi: 1.20`, `vi2zh: 0.80` mặc định). Override bằng
+(`zh2vi: 1.00`, `vi2zh: 0.90` mặc định). Override bằng
 `--length-penalty 1.0` nếu muốn.
 
 ### 5.6. Dịch
