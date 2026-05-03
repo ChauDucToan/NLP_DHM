@@ -57,16 +57,20 @@ bi-mamba-zh-vi/
 
 ---
 
-## 2. Kiến trúc Bi-Mamba (~55M tham số)
+## 2. Kiến trúc Bi-Mamba (~32M tham số, v3)
 
 | Thành phần                     | Kích thước                              |
 |--------------------------------|------------------------------------------|
-| Vocab (SentencePiece BPE)      | 16 000 (chia sẻ zh + vi)                 |
-| `d_model`                      | 512                                      |
-| Encoder                        | 5 × **Bi-Mamba block** + FFN(1280)       |
-| Decoder                        | 5 × **Mamba (causal) + Cross-attn(8 heads) + FFN(1280)** |
+| Vocab (SentencePiece BPE)      | 16 000 (chia sẻ zh + vi, `character_coverage=1.0`) |
+| `d_model`                      | 384                                      |
+| Encoder                        | 5 × **Bi-Mamba block** + FFN(960)        |
+| Decoder                        | 5 × **Mamba (causal) + Cross-attn(8 heads) + FFN(960)** |
 | `d_state` / `d_conv` / expand  | 16 / 4 / 2                               |
-| Tổng tham số                   | **≈ 54.6 M** (tied input + lm_head)      |
+| Tổng tham số                   | **≈ 32.4 M** (tied input + lm_head)      |
+
+> Lịch sử kích thước: trước đây 55–63M (`d_model=512`, vocab 16–32k). v3 giảm
+> xuống 32M để khớp với pool dữ liệu sạch ~135k cặp (≈ 4.2k cặp / param) —
+> mô hình lớn hơn overfit lên noise và rớt BLEU.
 
 * **Encoder Bi-Mamba**: tại mỗi block ta chạy Mamba xuôi và Mamba ngược (trên
   chuỗi đảo) rồi tổng hợp tuyến tính → ngữ cảnh hai chiều.
@@ -143,23 +147,30 @@ Tham số hữu ích:
 * `--preset {tiny|small|everyday|medium|large}` — chọn bộ corpus OPUS:
   * `tiny`     — TED2020 (~50 K, 1 MB)
   * `small`    — TED2020 + WikiMatrix + bible-uedin (~200 K) — bible chiếm ~14%, model dịch lệch giọng Kinh Thánh
-  * `everyday` — (v2) TED2020 + WikiMatrix + OpenSubtitles (cap 20k) + bible-uedin (cap 6k) (~115 K) — **mặc định**, bible ~5%, tiếng hội thoại vừa phải
+  * `everyday` — (v3) TED2020 + WikiMatrix + OpenSubtitles (cap 20k) + NLLB (LASER ≥1.10, cap 20k) + bible-uedin (cap 6k) (~135 K) — **mặc định**, bible ~4%, hội thoại + đa domain, NLLB đã lọc theo điểm tin cậy
   * `medium`   — small + OpenSubtitles uncapped (~3 M) — KHÔNG khuyến nghị nếu không cap
   * `large`    — medium + NLLB (~30 M, 700 MB) — NLLB có nhiều noise pseudo-alignment
 * `--sources ted2020 wikimatrix opensubtitles` — danh sách nguồn tự chọn.
 
-**Vì sao `everyday` là mặc định (v2):** preset `small` cũ làm bible-uedin
+**Vì sao `everyday` là mặc định (v3):** preset `small` cũ làm bible-uedin
 chiếm ~14% pool sạch → model dịch "Hello, world" thành "Ngày tốt, thế
 giới" (văn phong Kinh Thánh) thay vì "Xin chào, thế giới". `everyday`
-giảm bible xuống ~5% qua `max_pairs_per_source.bible_uedin = 6000` và thêm
-OpenSubtitles (liều nhỏ, cap 20k) để có hội thoại đời thường.
+giảm bible xuống ~4% qua `max_pairs_per_source.bible_uedin = 6000`, thêm
+OpenSubtitles (cap 20k) cho hội thoại đời thường, và NLLB (cap 20k với
+LASER ≥ 1.10) cho đa domain — chỉ giữ phần đầu high-confidence của file
+score sidecar.
 
-> **Lưu ý về phiên bản của `everyday`:** một bản v1 trước đó (NLLB cap 50k +
-> OpenSubtitles cap 80k → ~225K cặp) có vẻ đa dạng hơn nhưng trên thực
-> tế train ra **BLEU zh→vi 5.96** so với baseline 47.89 (`small`). NLLB
-> pseudo-alignment + OpenSubtitles fragments gây nhiễu tràn ngập signal.
-> v2 hiện tại bỏ NLLB và giảm OpenSubtitles để giữ baseline chất lượng,
-> vẫn đạt mục tiêu debias bible.
+> **Lịch sử của `everyday` preset (3 lần lặp):**
+>
+> * **v1** (NLLB cap 50k random + OpenSubtitles cap 80k → ~225K cặp) → BLEU
+>   zh→vi 5.96 vs baseline 47.89 (`small`). NLLB pseudo-alignment + OS fragments
+>   nhiễu tràn ngập signal.
+> * **v2** (bỏ NLLB hoàn toàn, OS cap 20k → ~105K) → BLEU vẫn ~6–9, do data
+>   thu hẹp quá mức và tokenizer vẫn drop ký tự CJK hiếm (UNK `⁇` xuất hiện ở
+>   output vi→zh).
+> * **v3** (hiện tại): NLLB **filter theo LASER score ≥ 1.10** + cap 20k →
+>   ~135K cặp; tokenizer `character_coverage=1.0`; mô hình giảm xuống 32M
+>   params để tương xứng với cỡ dữ liệu.
 
 **Chuẩn hoá phương ngữ tiếng Trung (mới):** các nguồn OPUS zh-vi không cùng
 một thứ tiếng — TED2020.vi-zh.zh thực ra là **tiếng Quảng Đông viết phồn
@@ -172,12 +183,16 @@ chỉ OpenSubtitles vi-zh_cn là Mandarin Giản thể đúng nghĩa. Pipeline m
 * `data.zh_normalize_simplified: true` — dùng OpenCC chuyển Trad→Simp ở
   phía zh, để toàn bộ pool nhất quán Mandarin Giản thể.
 
-Sau khi áp filter + normalize, TED2020 còn ~3k cặp (sạch Mandarin),
-WikiMatrix giữ ~85k, OpenSubtitles 20k (liều nhỏ), bible 6k → tổng ~115k
-pairs sạch + nhất quán phương ngữ.
+Sau khi áp filter + normalize + score-filter, TED2020 còn ~3k cặp (sạch
+Mandarin), WikiMatrix giữ ~85k, OpenSubtitles 20k, NLLB 20k (chỉ phần
+LASER ≥ 1.10), bible 6k → tổng ~135k pairs sạch + nhất quán phương ngữ.
 
-> Nếu muốn thử NLLB (web-mined đa domain) mặc dù có noise, dùng preset
-> `large` hoặc thêm `'nllb'` vào `--sources` thủ công. NLLB tải ~700 MB.
+> NLLB ships kèm file `NLLB.vi-zh.scores` (LASER cosine similarity, sort
+> giảm dần). Cấu hình `data.min_score_per_source.nllb = 1.10` chỉ giữ
+> phần đầu high-confidence (~10% pool). Nâng lên 1.20 cho cleaner pool ở
+> mức ~1–2%; hạ xuống 1.05 cho thêm data nhưng nhiễu hơn. Để dùng NLLB
+> không filter (kiểu cũ), bỏ entry `nllb` ra khỏi `min_score_per_source`
+> hoặc dùng preset `large`.
 
 **Lưu ý quan trọng về `medium` / `large` không cap**: OpenSubtitles vi-zh_cn
 (chiếm ~85% medium) và NLLB là parallel pseudo-aligned, có rất nhiều noise

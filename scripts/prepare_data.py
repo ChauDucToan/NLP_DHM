@@ -9,16 +9,18 @@ Available presets (chosen via ``--preset``):
 * ``tiny``      — TED2020 only (~ 50 k pairs, ~ 1 MB).         Good for smoke tests.
 * ``small``     — TED2020 + WikiMatrix + bible-uedin
                   (~ 200 k pairs, ~ 25 MB).                    Bible-heavy (~14%).
-* ``everyday``  — TED2020 + WikiMatrix + OpenSubtitles + bible-uedin (all
-                  capped, ~ 114 k pairs, ~ 65 MB).             **Default.**
-                  Bible only ~5% of mix; OpenSubtitles is included at a small
-                  dose (cap 20k) for conversational vocabulary without
-                  dominating. **Note (v2 revision):** an earlier `everyday`
-                  variant included NLLB cap 50k + OpenSubtitles cap 80k, but
-                  trained to BLEU 5.96 zh→vi (vs 47.89 baseline) — NLLB
-                  pseudo-alignment noise + OpenSubtitles fragments swamped
-                  the signal. The current preset drops NLLB and reduces
-                  OpenSubtitles to a small dose.
+* ``everyday``  — TED2020 + WikiMatrix + OpenSubtitles + NLLB (LASER
+                  >= 1.10) + bible-uedin (all capped, ~ 135 k pairs).
+                                                               **Default.**
+                  Bible only ~4% of mix; OpenSubtitles is included at a
+                  small dose (cap 20k) for conversational vocabulary; NLLB
+                  is **confidence-filtered** (only LASER >= 1.10 pairs) and
+                  capped at 20k for diverse domain coverage without the
+                  alignment noise that wrecked the v1 mix. **Note (v3):** an
+                  earlier `everyday` v1 used random-sampled NLLB cap 50k +
+                  OpenSubtitles cap 80k and trained to BLEU 5.96 zh→vi due
+                  to pseudo-alignment noise. v3 keeps NLLB but only the
+                  high-confidence head of the score distribution.
 * ``medium``    — small + OpenSubtitles vi-zh_cn (~ 3 M pairs, ~ 65 MB zip).
 * ``large``     — medium + NLLB / CCMatrix (~ 30 M pairs).     For full-corpus runs.
 
@@ -92,10 +94,11 @@ def _normalize_zh(zh: str) -> str:
 # ---------------------------------------------------------------------
 @dataclass
 class OpusSource:
-    name: str           # human label
-    url: str            # zip URL
-    vi_member: str      # filename of Vietnamese side inside zip
-    zh_member: str      # filename of Chinese side inside zip
+    name: str                       # human label
+    url: str                        # zip URL
+    vi_member: str                  # filename of Vietnamese side inside zip
+    zh_member: str                  # filename of Chinese side inside zip
+    score_member: str | None = None  # optional alignment-score sidecar (one float per line)
 
 
 # Only sources whose URLs return HTTP 200 on the Pouta mirror.
@@ -129,6 +132,10 @@ SOURCES: dict[str, OpusSource] = {
         url="https://object.pouta.csc.fi/OPUS-NLLB/v1/moses/vi-zh.txt.zip",
         vi_member="NLLB.vi-zh.vi",
         zh_member="NLLB.vi-zh.zh",
+        # NLLB ships with LASER-style alignment scores, sorted DESC. Used by
+        # `min_score` filter in iter_pairs_from_opus_zip to keep only the
+        # high-confidence parallel pairs (e.g. score >= 1.10).
+        score_member="NLLB.vi-zh.scores",
     ),
     "ccmatrix": OpusSource(
         name="CCMatrix vi-zh",
@@ -141,14 +148,13 @@ SOURCES: dict[str, OpusSource] = {
 PRESETS: dict[str, list[str]] = {
     "tiny":     ["ted2020"],
     "small":    ["ted2020", "wikimatrix", "bible_uedin"],
-    # `everyday` (v2) is the recommended default: bible-uedin gets a tight cap
-    # (~5% of the mix) so the model is not biased toward biblical register, and
-    # OpenSubtitles is included at a *small* cap (~17% of mix) for conversational
-    # vocabulary. NLLB was previously included but its pseudo-alignment noise +
-    # large cap (50k) hurt BLEU heavily (5.96 vs 47.89 baseline) so it is now
-    # excluded. NLLB still lives in the `large` preset for users who specifically
-    # want web-mined diversity and accept the noise.
-    "everyday": ["ted2020", "wikimatrix", "opensubtitles", "bible_uedin"],
+    # `everyday` (v3) is the recommended default: bible-uedin gets a tight cap
+    # (~4% of the mix), OpenSubtitles is included at a small cap (~15%) for
+    # conversational vocabulary, and NLLB is **confidence-filtered** (LASER
+    # score >= configured `min_score_per_source.nllb`, default 1.10) and
+    # capped at 20k for diverse domain coverage without the alignment noise
+    # that hurt BLEU in the v1 mix.
+    "everyday": ["ted2020", "wikimatrix", "opensubtitles", "nllb", "bible_uedin"],
     "medium":   ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles"],
     "large":    ["ted2020", "wikimatrix", "bible_uedin", "opensubtitles", "nllb"],
 }
@@ -189,6 +195,7 @@ def iter_pairs_from_opus_zip(
     *,
     normalize_zh: bool = True,
     filter_cantonese: bool = True,
+    min_score: float | None = None,
 ) -> Iterable[Pair]:
     """Yield ``Pair`` rows from an OPUS Moses-format zip.
 
@@ -196,6 +203,12 @@ def iter_pairs_from_opus_zip(
     using OpenCC. ``filter_cantonese`` drops pairs whose zh side contains
     Cantonese-only particles (嘅/哋/啲/咁/喺/嗰/咗) — these are typically
     Cantonese sentences mis-labelled as zh on OPUS (notably TED2020.vi-zh).
+
+    ``min_score`` (when set) drops pairs whose alignment score is below the
+    threshold. Only used when the source declares a ``score_member``
+    (currently only NLLB has one). NLLB scores are LASER-style cosine
+    similarities, sorted DESC; ~1.10 is a reasonable floor for usable
+    parallel data, ~1.20 keeps only the highest-confidence ~1–2% of the pool.
     """
     with zipfile.ZipFile(zip_path) as z:
         names = set(z.namelist())
@@ -204,11 +217,37 @@ def iter_pairs_from_opus_zip(
                 f"  WARNING: expected members not found in {zip_path.name}; got {sorted(names)}"
             )
             return
+        use_scores = (
+            min_score is not None
+            and src.score_member is not None
+            and src.score_member in names
+        )
+        if min_score is not None and not use_scores:
+            print(
+                f"  NOTE: min_score={min_score} requested but no score sidecar "
+                f"in {zip_path.name}; skipping score filter."
+            )
+        if use_scores:
+            print(f"  applying score filter: keep pairs with score >= {min_score}")
         with z.open(src.vi_member) as fv, z.open(src.zh_member) as fz:
-            for vi_line, zh_line in zip(
-                io.TextIOWrapper(fv, encoding="utf-8"),
-                io.TextIOWrapper(fz, encoding="utf-8"),
-            ):
+            viw = io.TextIOWrapper(fv, encoding="utf-8")
+            zhw = io.TextIOWrapper(fz, encoding="utf-8")
+            if use_scores:
+                fs = z.open(src.score_member)  # type: ignore[arg-type]
+                sw = io.TextIOWrapper(fs, encoding="utf-8")
+                line_iter = zip(viw, zhw, sw)
+            else:
+                line_iter = ((v, z_, None) for v, z_ in zip(viw, zhw))
+            for vi_line, zh_line, score_line in line_iter:
+                if use_scores:
+                    try:
+                        score = float(score_line)
+                    except (TypeError, ValueError):
+                        continue
+                    # Score sidecar is sorted DESC: once we drop below the
+                    # threshold, the rest of the file is also below it.
+                    if score < float(min_score):  # type: ignore[arg-type]
+                        break
                 vi = basic_clean(vi_line)
                 zh = basic_clean(zh_line)
                 if not vi or not zh:
@@ -313,6 +352,13 @@ def main() -> None:
     # randomly subsampled before joining the global pool.
     raw_caps = data_cfg.get("max_pairs_per_source", {}) or {}
     caps: dict[str, int] = {k: int(v) for k, v in raw_caps.items() if v}
+    # Per-source minimum alignment-score threshold (only applied when the
+    # source provides a score sidecar; currently NLLB only). Filtering NLLB
+    # at score >= 1.10 keeps the high-confidence ~5–10% of the pool.
+    raw_min_scores = data_cfg.get("min_score_per_source", {}) or {}
+    min_scores: dict[str, float] = {
+        k: float(v) for k, v in raw_min_scores.items() if v is not None
+    }
 
     pairs: List[Pair] = []
     seen: set[tuple[str, str]] = set()  # for dedup
@@ -354,6 +400,7 @@ def main() -> None:
                 src,
                 normalize_zh=normalize_zh,
                 filter_cantonese=filter_cantonese,
+                min_score=min_scores.get(key),
             ):
                 k = (p_.zh, p_.vi)
                 if k in seen:
