@@ -20,45 +20,56 @@ train mô hình, đánh giá SacreBLEU, dịch demo — và chạy được:
 bi-mamba-zh-vi/
 ├── README.md                     # tài liệu này
 ├── LICENSE                       # MIT
-├── pyproject.toml                # đóng gói package bi_mamba_mt
+├── pyproject.toml                # đóng gói packages: mt_base, bi_mamba_mt, transformer_mt
 ├── requirements.txt              # phụ thuộc Python
 ├── configs/
-│   └── bi_mamba_55m.yaml         # config hiện tại ~32M (model + data + train + eval)
+│   ├── bi_mamba_55m.yaml         # Bi-Mamba 32.4M (model + data + train + eval)
+│   └── transformer_30m.yaml      # Transformer baseline 30.8M (cùng data + tokenizer)
 ├── data/                         # nơi script ghi dữ liệu (đã .gitignore)
 │   └── .gitkeep
 ├── notebooks/
-│   └── bi_mamba_zh_vi_colab.ipynb  # train end-to-end trên Colab
+│   ├── bi_mamba_zh_vi_colab.ipynb        # train Bi-Mamba end-to-end trên Colab
+│   └── transformer_zh_vi_colab.ipynb     # train Transformer baseline (so sánh)
 ├── scripts/
-│   ├── prepare_data.py           # tải + lọc + chia split (script-id + length filter)
-│   ├── train_tokenizer.py        # train SentencePiece BPE (chia sẻ zh+vi)
-│   ├── train.py                  # vòng lặp train chính (EMA + length-bucket sampler)
-│   ├── avg_ckpts.py              # Polyak averaging của N checkpoint cuối
-│   ├── evaluate.py               # SacreBLEU + chrF cả hai chiều, per-direction LP, length-bucket
-│   ├── sweep_decode.py           # Grid-sweep beam × length_penalty → CSV
-│   └── translate.py              # CLI dịch (single / batch)
+│   ├── prepare_data.py               # tải + lọc + chia split (script-id + length filter)
+│   ├── train_tokenizer.py            # train SentencePiece BPE (chia sẻ zh+vi)
+│   ├── train.py                      # train Bi-Mamba
+│   ├── train_transformer.py          # train Transformer baseline
+│   ├── avg_ckpts.py                  # Polyak averaging của N checkpoint cuối
+│   ├── evaluate.py                   # eval Bi-Mamba (per-direction LP, length-bucket)
+│   ├── evaluate_transformer.py       # eval Transformer (cùng CLI)
+│   ├── sweep_decode.py               # Grid-sweep beam × length_penalty → CSV (Bi-Mamba)
+│   └── translate.py                  # CLI dịch (single / batch)
 ├── src/
-│   └── bi_mamba_mt/              # package Python
+│   ├── mt_base/                  # ★ Shared (tokenizer / data / trainer / eval / translate)
+│   │   ├── __init__.py
+│   │   ├── tokenizer.py          # SentencePiece + special tokens
+│   │   ├── data.py               # Dataset, Collator, JSONL helpers, length-bucket sampler
+│   │   ├── trainer.py            # generic train loop (EMA + AMP + early-stop + resume)
+│   │   ├── translate.py          # generic beam-search inference
+│   │   ├── evaluator.py          # SacreBLEU/chrF + length-bucket breakdown
+│   │   └── utils.py              # YAML, seed, AMP dtype, device
+│   ├── bi_mamba_mt/              # Bi-Mamba kiến trúc
+│   │   ├── __init__.py
+│   │   ├── model.py              # BiMambaTranslator (encoder + decoder)
+│   │   ├── modules/              # mamba_block, bi_mamba, cross_attention, decoder_block
+│   │   └── {tokenizer,data,trainer,translate,evaluator,utils}.py  # re-export shims
+│   └── transformer_mt/           # ★ Vanilla Transformer baseline
 │       ├── __init__.py
-│       ├── model.py              # BiMambaTranslator (encoder + decoder)
-│       ├── tokenizer.py          # SentencePiece + special tokens
-│       ├── data.py               # Dataset, Collator, JSONL helpers
-│       ├── trainer.py            # train loop, optimizer, AMP, lr schedule
-│       ├── translate.py          # encode → generate → decode
-│       ├── evaluator.py          # SacreBLEU/chrF
-│       ├── utils.py              # YAML, seed, AMP dtype, device
-│       └── modules/
-│           ├── mamba_block.py    # Mamba selective SSM (CUDA fast path + PyTorch fallback)
-│           ├── bi_mamba.py       # Bi-Mamba (forward + reversed)
-│           ├── cross_attention.py
-│           └── decoder_block.py
+│       └── model.py              # TransformerTranslator (cùng API như BiMambaTranslator)
 └── tests/
     ├── test_model.py
-    └── test_tokenizer.py
+    ├── test_tokenizer.py
+    └── test_transformer.py
 ```
 
 ---
 
-## 2. Kiến trúc Bi-Mamba (~32M tham số, v3)
+## 2. Kiến trúc
+
+Dự án có **2 mô hình** dùng chung tokenizer + data + training loop:
+
+### 2.1 Bi-Mamba (~32M tham số, v3)
 
 | Thành phần                     | Kích thước                              |
 |--------------------------------|------------------------------------------|
@@ -82,6 +93,20 @@ bi-mamba-zh-vi/
 
 Xem `configs/bi_mamba_55m.yaml` để biết toàn bộ siêu tham số và `src/bi_mamba_mt/model.py`
 cho code.
+
+### 2.2 Vanilla Transformer baseline (~31M tham số)
+
+| Thành phần                     | Kích thước                              |
+|--------------------------------|------------------------------------------|
+| Vocab (SentencePiece BPE)      | 16 000 (chia sẻ chung với Bi-Mamba)     |
+| `d_model`                      | 384                                      |
+| Encoder                        | 5 × MHA(8 heads) + FFN(2048), pre-norm   |
+| Decoder                        | 5 × MHA + cross-attn + FFN(2048)         |
+| Tổng tham số                   | **≈ 30.8 M** (tied input + lm_head)      |
+
+Mục đích: **baseline so sánh** trên cùng data + cùng tokenizer + cùng training loop. Nếu Transformer đạt BLEU cao hơn rõ rệt → vấn đề nằm ở kiến trúc Bi-Mamba seq2seq. Nếu Transformer cũng kẹt cùng mức → vấn đề là data/tokenizer/preprocessing.
+
+Xem `configs/transformer_30m.yaml` + `src/transformer_mt/model.py`. Train bằng `scripts/train_transformer.py`, eval bằng `scripts/evaluate_transformer.py`.
 
 ---
 
