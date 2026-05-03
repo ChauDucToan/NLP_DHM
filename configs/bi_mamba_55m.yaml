@@ -1,23 +1,26 @@
 # Bi-Mamba — Chinese↔Vietnamese translation.
 #
-# Default budget (~63M with vocab=32k):
-#   embedding (shared, tied with lm_head) : 32,000 × 512   ≈ 16.4M
-#   encoder (5 × bi-mamba + ffn @ d_model=512)             ≈ 23.0M
-#   decoder (5 × mamba + cross-attn + ffn)                 ≈ 23.4M
+# Default budget (**v3, 32.4M params** with vocab=16k, d_model=384):
+#   embedding (shared, tied with lm_head) : 16,000 × 384   ≈  6.1M
+#   encoder (5 × bi-mamba + ffn @ d_model=384)             ≈ 14.8M
+#   decoder (5 × mamba + cross-attn + ffn)                 ≈ 11.5M
 #   final norms + biases                                   ≈   0M
-#   total                                                  ≈ 62.8M
-# (To stay at ~55M, keep vocab_size=16000.)
+#   total                                                  ≈ 32.4M
+# Sized for the `everyday` v3 dataset (~135k clean pairs): smaller model
+# with smaller vocab + d_model 384 gives ~4.2k pairs / param (vs 1.7k
+# pairs / param at the previous 62.8M budget which overfit to noise).
+# (Earlier budgets: ~63M with vocab=32k+d_model=512; ~55M with vocab=16k+d_model=512.)
 
 model:
-  vocab_size: 32000          # shared SentencePiece BPE for zh + vi + special tokens
-  d_model: 512
+  vocab_size: 16000          # shared SentencePiece BPE for zh + vi + special tokens (v3: 32k -> 16k)
+  d_model: 384               # v3: 512 -> 384, quadratic param savings
   d_state: 16                # SSM state size
   d_conv: 4                  # local conv kernel inside Mamba
   expand: 2                  # inner expansion factor
   n_encoder_layers: 5
   n_decoder_layers: 5
-  d_ff: 1280                 # FFN inner = 2.5 * d_model (keeps total ≈ 55M params)
-  n_cross_attn_heads: 8
+  d_ff: 960                  # FFN inner = 2.5 * d_model (kept at 2.5× ratio)
+  n_cross_attn_heads: 8      # 384 / 8 = 48 dim per head
   dropout: 0.1
   tie_embeddings: true       # tie input embedding with lm_head
   max_src_len: 256
@@ -33,8 +36,12 @@ model:
 tokenizer:
   type: sentencepiece
   model_type: bpe
-  vocab_size: 32000
-  character_coverage: 0.9995
+  vocab_size: 16000          # v3: matches model.vocab_size
+  # v3: 0.9995 -> 1.0 to cover all observed CJK characters. With 0.9995 the
+  # SP trainer dropped the rarest 0.05% of characters which produced ⟨unk⟩
+  # tokens in vi→zh outputs (e.g. "你好世界" → " ⁇好世界"). character_coverage=1.0
+  # ensures every distinct character in the training corpus is in the vocab.
+  character_coverage: 1.0
   # Reserve first 6 ids for: <pad> <bos> <eos> <unk> <2vi> <2zh>
   user_defined_symbols: ["<2vi>", "<2zh>"]
   # Note: <pad>, <bos>, <eos>, <unk> are passed via SP control flags.
@@ -45,15 +52,16 @@ data:
   # or override with `--sources ted2020 wikimatrix opensubtitles ...`.
   #
   # NOTE on preset choice:
-  # `everyday` (default, **revised v2**) — TED2020 + WikiMatrix +
-  #   OpenSubtitles (capped 20k) + bible-uedin (capped 6k). Bible is only ~5%
-  #   of the mix so the model is not biased toward biblical register;
-  #   OpenSubtitles is included at a small dose for conversational vocabulary
-  #   ("xin chào", "tạm biệt") without dominating. **NLLB removed** in v2: a
-  #   prior `everyday` v1 run with NLLB cap 50k + OpenSubtitles cap 80k
-  #   trained to ema_val_loss ≈ 3.10 and BLEU zh→vi 5.96 (vs 47.89 baseline)
-  #   — NLLB pseudo-alignment noise + OpenSubtitles fragments overwhelmed
-  #   the signal. v2 keeps the bible-debias goal but drops noisy sources.
+  # `everyday` (default, **revised v3**) — TED2020 + WikiMatrix +
+  #   OpenSubtitles (capped 20k) + **NLLB confidence-filtered**
+  #   (LASER >= 1.10, capped 20k) + bible-uedin (capped 6k). Bible only ~4%
+  #   of mix; OpenSubtitles is conversational vocab; NLLB now uses the
+  #   `min_score_per_source.nllb` filter to keep ONLY high-confidence pairs
+  #   from the LASER score sidecar. **History:** v1 used random-sampled
+  #   NLLB cap 50k + OpenSubtitles cap 80k → BLEU 5.96 zh→vi (vs 47.89
+  #   baseline) due to alignment noise. v2 dropped NLLB entirely → BLEU
+  #   stayed low because data shrank too far. v3 keeps NLLB but only the
+  #   high-confidence head (~10% of NLLB pool).
   # `small` — original TED2020 + WikiMatrix + bible-uedin (no per-source caps
   #   used to be applied → bible was ~14% of clean data → biased translation).
   # `medium` — small + uncapped OpenSubtitles. Without caps OpenSubtitles
@@ -90,18 +98,26 @@ data:
   max_zh_vi_ratio: 1.20
   # Per-source caps (only takes effect when the source is in the preset).
   # Set the noisy/large sources to a sane upper bound so they cannot dominate.
-  # Defaults are tuned for the `everyday` v2 preset (~114k clean pairs total
-  # *after* Cantonese filter + Trad→Simp normalisation):
+  # Defaults are tuned for the `everyday` v3 preset (~135k clean pairs total
+  # *after* Cantonese filter + Trad→Simp normalisation + NLLB score filter):
   #   TED2020 ~3k     (uncapped — most of TED2020.zh is Cantonese, dropped)
-  #   WikiMatrix ~85k (cap 100k)
-  #   OpenSubtitles ~20k (cap 20k, small dose for conversational vocab)
-  #   bible-uedin ~6k (cap 6k → ~5% of mix).
+  #   WikiMatrix ~85k (cap 100k, ~63%)
+  #   OpenSubtitles ~20k (cap 20k, small dose for conversational vocab, ~15%)
+  #   NLLB ~20k (cap 20k from LASER >= 1.10 head, ~15%)
+  #   bible-uedin ~6k (cap 6k → ~4% of mix).
   max_pairs_per_source:
-    opensubtitles: 20000      # cap conversational subtitles — small dose only (~17%)
-    wikimatrix:    100000     # cap WikiMatrix to 100k (top-LASER pairs, ~75%)
-    nllb:          50000      # only used by `large` preset — v2 `everyday` excludes NLLB
-    bible_uedin:   6000       # cap bible-uedin to 6k → ~5% of mix (was ~14%)
+    opensubtitles: 20000      # cap conversational subtitles — small dose only (~15%)
+    wikimatrix:    100000     # cap WikiMatrix to 100k (top-LASER pairs, ~63%)
+    nllb:          20000      # cap NLLB at 20k AFTER score filter (~15% of mix)
+    bible_uedin:   6000       # cap bible-uedin to 6k → ~4% of mix (was ~14%)
     # ted2020 left uncapped — most of it is Cantonese and gets filtered out
+  # Per-source minimum alignment score. Only applied when the source provides
+  # a score sidecar in its OPUS zip. Currently NLLB ships LASER-style cosine
+  # similarities sorted DESC; ~1.10 keeps the top ~10% by quality, ~1.20
+  # keeps the top ~1–2%. Lowering this admits more (noisier) data; raising it
+  # gets cleaner pairs at the cost of corpus size.
+  min_score_per_source:
+    nllb: 1.10
 
 train:
   output_dir: "runs/bi_mamba_55m"
