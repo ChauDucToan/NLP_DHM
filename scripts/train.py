@@ -114,11 +114,6 @@ def main() -> None:
     n_params = count_parameters(model)
     print(f"Model parameters: {human_format(n_params)} ({n_params:,})")
 
-    if args.resume:
-        ckpt = torch.load(args.resume, map_location="cpu")
-        model.load_state_dict(ckpt["model"])
-        print(f"Resumed from {args.resume} (step {ckpt.get('step', '?')})")
-
     # Filter to only keys TrainConfig knows about (others are loader/seed knobs).
     import dataclasses
 
@@ -134,6 +129,7 @@ def main() -> None:
         val_loader=valid_loader,
         cfg=train_cfg,
         device=device,
+        resume_checkpoint=args.resume,
     )
 
     final = out_dir / "final.pt"

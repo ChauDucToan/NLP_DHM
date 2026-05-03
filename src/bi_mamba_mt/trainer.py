@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import time
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -160,6 +160,7 @@ def train(
     cfg: TrainConfig,
     device: torch.device,
     log_callback=None,
+    resume_checkpoint: str | Path | dict | None = None,
 ):
     """Run training. Saves checkpoints to ``cfg.output_dir``.
 
@@ -170,6 +171,14 @@ def train(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     model = model.to(device)
+    resume_state = None
+    if resume_checkpoint is not None:
+        if isinstance(resume_checkpoint, (str, Path)):
+            resume_state = torch.load(resume_checkpoint, map_location="cpu")
+        else:
+            resume_state = resume_checkpoint
+        model.load_state_dict(resume_state["model"])
+
     optimizer = build_optimizer(
         model,
         lr=cfg.lr,
@@ -199,8 +208,29 @@ def train(
     early_stop = False
 
     step = 0
+    if resume_state is not None:
+        if resume_state.get("is_ema"):
+            tqdm.write(
+                "Warning: resuming from an EMA-weight checkpoint; raw optimizer "
+                "state may not match those weights."
+            )
+        if "optimizer" in resume_state:
+            optimizer.load_state_dict(resume_state["optimizer"])
+        if scaler is not None and resume_state.get("scaler") is not None:
+            scaler.load_state_dict(resume_state["scaler"])
+        if ema is not None and resume_state.get("ema") is not None:
+            ema.load_state_dict(resume_state["ema"])
+        step = int(resume_state.get("step", 0))
+        best_val_loss = float(resume_state.get("best_val_loss", best_val_loss))
+        best_ema_val_loss = float(
+            resume_state.get("best_ema_val_loss", best_ema_val_loss)
+        )
+        es_best = float(resume_state.get("es_best", es_best))
+        es_stale = int(resume_state.get("patience_counter", es_stale))
+        tqdm.write(f"Resumed training state from step {step}")
+
     model.train()
-    pbar = tqdm(total=cfg.max_steps, desc="train", dynamic_ncols=True)
+    pbar = tqdm(total=cfg.max_steps, initial=step, desc="train", dynamic_ncols=True)
     t0 = time.time()
     accum = 0
     optimizer.zero_grad(set_to_none=True)
@@ -277,6 +307,13 @@ def train(
                     "model_cfg": vars(model.cfg),
                     "step": step,
                     "val_loss": val_loss,
+                    "best_val_loss": best_val_loss,
+                    "best_ema_val_loss": best_ema_val_loss,
+                    "es_best": es_best,
+                    "patience_counter": es_stale,
+                    "optimizer": optimizer.state_dict(),
+                    "scaler": scaler.state_dict() if scaler is not None else None,
+                    "train_cfg": asdict(cfg),
                     "is_best": True,
                 }
                 if ema is not None:
@@ -299,6 +336,13 @@ def train(
                         "model_cfg": vars(model.cfg),
                         "step": step,
                         "ema_val_loss": ema_val_loss,
+                        "best_val_loss": best_val_loss,
+                        "best_ema_val_loss": best_ema_val_loss,
+                        "es_best": es_best,
+                        "patience_counter": es_stale,
+                        "optimizer": optimizer.state_dict(),
+                        "scaler": scaler.state_dict() if scaler is not None else None,
+                        "train_cfg": asdict(cfg),
                         "is_ema": True,
                         "is_best": True,
                     }
@@ -348,6 +392,13 @@ def train(
                 "model": model.state_dict(),
                 "model_cfg": vars(model.cfg),
                 "step": step,
+                "best_val_loss": best_val_loss,
+                "best_ema_val_loss": best_ema_val_loss,
+                "es_best": es_best,
+                "patience_counter": es_stale,
+                "optimizer": optimizer.state_dict(),
+                "scaler": scaler.state_dict() if scaler is not None else None,
+                "train_cfg": asdict(cfg),
             }
             if ema is not None:
                 payload["ema"] = ema.state_dict()
@@ -362,6 +413,11 @@ def train(
                     "model": model.state_dict(),
                     "model_cfg": vars(model.cfg),
                     "step": step,
+                    "best_val_loss": best_val_loss,
+                    "best_ema_val_loss": best_ema_val_loss,
+                    "es_best": es_best,
+                    "patience_counter": es_stale,
+                    "train_cfg": asdict(cfg),
                     "is_ema": True,
                 }
                 torch.save(ema_payload, out_dir / "latest_ema.pt")

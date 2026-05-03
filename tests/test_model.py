@@ -10,7 +10,11 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bi_mamba_mt.model import BiMambaTranslator, ModelConfig
-from bi_mamba_mt.modules.mamba_block import MambaBlock
+from bi_mamba_mt.modules.mamba_block import (
+    MambaBlock,
+    _HAS_CAUSAL_CONV1D,
+    _HAS_SELECTIVE_SCAN,
+)
 
 
 def test_mamba_step_matches_full_scan():
@@ -31,12 +35,31 @@ def test_mamba_step_matches_full_scan():
         y_step = torch.stack(ys, dim=1)
 
     assert y_full.shape == y_step.shape == (B, L, 32)
-    # Outputs may differ slightly because the forward path multiplies by SiLU(z) inside
-    # the fused branch but applies it inside selective_scan_ref. Both branches in this
-    # test go through the same code, so check tight equality.
     assert torch.allclose(y_full, y_step, atol=1e-5, rtol=1e-4), (
         f"max diff {torch.max(torch.abs(y_full - y_step))}"
     )
+
+
+def test_mamba_fast_path_matches_reference_when_available():
+    """CUDA fused kernels should match the pure PyTorch reference path."""
+    if not (torch.cuda.is_available() and _HAS_CAUSAL_CONV1D and _HAS_SELECTIVE_SCAN):
+        return
+
+    torch.manual_seed(0)
+    x = torch.randn(2, 17, 64, device="cuda", dtype=torch.float32)
+
+    m_fast = MambaBlock(d_model=64, d_state=8, d_conv=4, expand=2).cuda().eval()
+    m_ref = MambaBlock(d_model=64, d_state=8, d_conv=4, expand=2).cuda().eval()
+    m_ref.load_state_dict(m_fast.state_dict())
+
+    m_fast.use_fast_path = True
+    m_ref.use_fast_path = False
+
+    with torch.no_grad():
+        y_fast = m_fast(x)
+        y_ref = m_ref(x)
+
+    torch.testing.assert_close(y_fast, y_ref, rtol=2e-2, atol=2e-2)
 
 
 def test_translator_forward_shapes():
@@ -116,6 +139,7 @@ def test_translator_greedy_generate_runs():
 
 if __name__ == "__main__":
     test_mamba_step_matches_full_scan()
+    test_mamba_fast_path_matches_reference_when_available()
     test_translator_forward_shapes()
     test_translator_backward_runs()
     test_translator_greedy_generate_runs()

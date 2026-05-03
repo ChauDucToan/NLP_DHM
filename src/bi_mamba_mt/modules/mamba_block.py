@@ -130,7 +130,7 @@ class MambaBlock(nn.Module):
         self.dt_proj = nn.Linear(self.dt_rank, self.d_inner, bias=True)
 
         # dt_proj init
-        dt_init_std = self.dt_rank ** -0.5 * dt_scale
+        dt_init_std = self.dt_rank**-0.5 * dt_scale
         if dt_init == "constant":
             nn.init.constant_(self.dt_proj.weight, dt_init_std)
         elif dt_init == "random":
@@ -192,11 +192,11 @@ class MambaBlock(nn.Module):
                 x_conv,
                 rearrange(self.conv1d.weight, "d 1 w -> d w"),
                 self.conv1d.bias,
-                activation="silu",
+                activation=None,
             )
         else:
             x_conv = self.conv1d(x_conv)[..., :L]
-            x_conv = self.act(x_conv)
+        x_conv = self.act(x_conv[..., :L])
         x_conv = rearrange(x_conv, "b d l -> b l d")
 
         # Project to delta, B, C
@@ -217,7 +217,7 @@ class MambaBlock(nn.Module):
                 rearrange(B_t, "b l n -> b n l"),
                 rearrange(C_t, "b l n -> b n l"),
                 self.D.float(),
-                z=rearrange(z, "b l d -> b d l"),
+                z=None,
                 delta_bias=None,
                 delta_softplus=True,
                 return_last_state=False,
@@ -225,7 +225,7 @@ class MambaBlock(nn.Module):
             y = rearrange(y, "b d l -> b l d")
         else:
             y = self._selective_scan_ref(x_conv, delta, A, B_t, C_t, self.D)
-            y = y * self.act(z)
+        y = y * self.act(z)
 
         return self.out_proj(y)
 

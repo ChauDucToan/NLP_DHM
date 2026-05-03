@@ -123,18 +123,18 @@ train:
   output_dir: "runs/bi_mamba_55m"
   batch_size: 128
   grad_accum_steps: 1
-  max_steps: 120000          # ~ 35 epochs over ~450k bi-direction pairs at bs=128
-  warmup_steps: 4000
-  lr: 5.0e-4
+  max_steps: 60000           # shorter schedule for the everyday corpus after fast-path fix
+  warmup_steps: 3000
+  lr: 3.0e-4
   min_lr: 1.0e-5
-  weight_decay: 0.1
+  weight_decay: 0.05
   betas: [0.9, 0.98]
   eps: 1.0e-9
   grad_clip: 1.0
-  label_smoothing: 0.1
+  label_smoothing: 0.08
   log_every: 50
-  eval_every: 2000
-  save_every: 2000
+  eval_every: 1000
+  save_every: 1000
   amp_dtype: "bf16"          # one of: "fp32", "fp16", "bf16"
   num_workers: 4             # bump on machines with >4 cores; Colab has 8
   pin_memory: true
@@ -147,19 +147,19 @@ train:
   ema: true
   ema_decay: 0.9990
   # Early stopping. Patience is in number of eval ticks (each eval_every steps).
-  # 10 ticks * eval_every=2000 = 20K steps without improvement -> stop.
+  # 6 ticks * eval_every=1000 = 6K steps without improvement -> stop.
   # Set to 0 to disable.
-  early_stopping_patience: 15  # 15 ticks * eval_every=2000 = 30k stale steps -> stop
+  early_stopping_patience: 6   # 6 ticks * eval_every=1000 = 6k stale steps -> stop
   early_stopping_min_delta: 0.0
 
 eval:
-  beam_size: 6
+  beam_size: 4
   # Per-direction length penalty. Vietnamese targets are ~3× longer in
   # characters than Chinese targets, so a slightly higher LP for zh→vi keeps
   # outputs from being too short, and a lower LP for vi→zh keeps zh outputs
   # from being padded. Tune in [0.6, 1.4] on dev set.
   length_penalty:
-    zh2vi: 1.20
-    vi2zh: 0.80
+    zh2vi: 1.00
+    vi2zh: 0.90
   max_decode_len: 256
   num_samples: 3000          # bumped from 1000 — stable BLEU/chrF (±0.5 noise)

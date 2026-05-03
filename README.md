@@ -229,9 +229,14 @@ python scripts/train.py --config configs/bi_mamba_55m.yaml \
     --resume runs/bi_mamba_55m/latest.pt
 ```
 
+`latest.pt` / `checkpoint_step{N}.pt` lưu cả model, optimizer, GradScaler,
+EMA, global step và early-stopping state, nên resume sẽ tiếp tục đúng lịch LR
+thay vì khởi động lại optimizer/scheduler từ đầu. Dùng `latest_ema.pt` cho
+evaluate/inference, không dùng làm checkpoint resume chính.
+
 **Early stopping** (mặc định bật): nếu `ema_val_loss` (hoặc `val_loss` khi
-`ema=False`) không cải thiện qua `early_stopping_patience=10` lần eval liên
-tiếp (≈ 20K steps với `eval_every=2000`), training tự dừng và lưu checkpoint
+`ema=False`) không cải thiện qua `early_stopping_patience` lần eval liên
+tiếp (mặc định 6K steps với `eval_every=1000`), training tự dừng và lưu checkpoint
 cuối. Set `early_stopping_patience: 0` trong config để tắt.
 
 ### 5.4. Best / Average / EMA checkpoint (boost BLEU "miễn phí")
