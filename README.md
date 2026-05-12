@@ -20,6 +20,7 @@ train mô hình, đánh giá SacreBLEU, dịch demo — và chạy được:
 bi-mamba-zh-vi/
 ├── README.md                     # tài liệu này
 ├── LICENSE                       # MIT
+├── app.py                        # ★ ASGI entrypoint cho web demo FastAPI
 ├── pyproject.toml                # đóng gói packages: mt_base, bi_mamba_mt, transformer_mt, hybrid_mt
 ├── requirements.txt              # phụ thuộc Python
 ├── configs/
@@ -62,14 +63,19 @@ bi-mamba-zh-vi/
 │   ├── transformer_mt/           # ★ Vanilla Transformer baseline
 │   │   ├── __init__.py
 │   │   └── model.py              # TransformerTranslator (cùng API như BiMambaTranslator)
-│   └── hybrid_mt/                # ★ Hybrid Bi-Mamba enc + Transformer dec
+│   ├── hybrid_mt/                # ★ Hybrid Bi-Mamba enc + Transformer dec
+│   │   ├── __init__.py
+│   │   └── model.py              # HybridMambaAttentionTranslator (cùng API)
+│   └── web_demo/                 # ★ FastAPI web demo preload 3 model
 │       ├── __init__.py
-│       └── model.py              # HybridMambaAttentionTranslator (cùng API)
+│       ├── service.py            # ModelManager + checkpoint/cache/warmup
+│       └── server.py             # HTML/CSS/JS + API /translate /swap /health
 └── tests/
     ├── test_model.py
     ├── test_tokenizer.py
     ├── test_transformer.py
-    └── test_hybrid.py
+    ├── test_hybrid.py
+    └── test_web_demo.py
 ```
 
 ---
@@ -184,6 +190,47 @@ Cài thêm test runner (tuỳ chọn):
 pip install pytest
 pytest tests/ -v
 ```
+
+### 4.1. Chạy web demo 3 mô hình
+
+Web app dùng `FastAPI + HTML/CSS/JS`, preload đồng thời `mamba`, `hybrid`,
+`transformer` và giữ nóng cả 3 model trong cùng tiến trình để đổi model gần như
+tức thì sau startup.
+
+```bash
+uvicorn app:app --reload
+```
+
+Mở trình duyệt tại:
+
+```text
+http://127.0.0.1:8000
+```
+
+API có sẵn:
+
+* `GET /` — giao diện demo
+* `GET /api/health` — kiểm tra preload/warmup
+* `POST /api/translate` — dịch với `text`, `model`, `direction`
+* `POST /api/swap` — đảo chiều, đẩy output hiện tại về input mới
+
+Yêu cầu để web demo chạy được:
+
+* Phải có tokenizer tại `data/tokenizer/spm.model`
+* Phải có checkpoint trong từng run dir:
+  * `runs/bi_mamba_55m/`
+  * `runs/hybrid_mamba_attention/`
+  * `runs/transformer_30m/`
+* App tự dò checkpoint theo thứ tự:
+  `avg_last5_ema.pt`, `best_ema.pt`, `avg_last5.pt`, `best.pt`,
+  `latest_ema.pt`, `latest.pt`, rồi `final.pt`
+
+Lưu ý tài nguyên:
+
+* Startup sẽ preload cả 3 model, nên RAM/VRAM dùng cao hơn CLI dịch 1 model
+* Nếu có CUDA thì app sẽ dùng GPU; nếu không có sẽ fallback CPU
+* Request lặp lại cùng `model + direction + text + decode params` sẽ hit cache
+  in-memory và trả nhanh hơn rõ rệt
 
 ---
 

@@ -3,6 +3,8 @@ torch>=2.1
 numpy>=1.24
 pyyaml>=6.0
 tqdm>=4.65
+fastapi>=0.115
+uvicorn>=0.32
 certifi>=2024.0.0
 
 # Tokenization
