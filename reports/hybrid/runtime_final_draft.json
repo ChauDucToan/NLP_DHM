@@ -1,0 +1,95 @@
+{
+  "model_kind": "hybrid",
+  "checkpoint": "runs/hybrid_mamba_attention/final.pt",
+  "eval_label": "DRAFT METRICS",
+  "config_path": "configs/hybrid_mamba_attention.yaml",
+  "beam_size": 1,
+  "max_decode_len": 256,
+  "length_buckets": true,
+  "directions": [
+    "zh2vi",
+    "vi2zh"
+  ],
+  "subset": {
+    "subset_kind": "random_seeded",
+    "sample_seed": 42,
+    "num_total_pairs": 5000,
+    "num_selected_pairs": 300,
+    "selected_index_preview": [
+      4,
+      17,
+      26,
+      53,
+      58,
+      94,
+      120,
+      159,
+      172,
+      204
+    ]
+  },
+  "device": {
+    "python": "3.12.13",
+    "platform": "Linux-6.19.13-xanmod1-x86_64-with-glibc2.42",
+    "torch": "2.11.0+cu130",
+    "device_type": "cuda",
+    "device": "NVIDIA GeForce RTX 5070 Ti",
+    "cuda_available": true,
+    "cuda_version": "13.0",
+    "cudnn_version": 91900,
+    "gpu_capability": "12.0"
+  },
+  "timings_sec": {
+    "zh2vi": 3.696,
+    "vi2zh": 2.777,
+    "total": 6.473
+  },
+  "results": {
+    "zh2vi": {
+      "n": 300,
+      "bleu": 21.5605,
+      "chrf": 40.2629,
+      "length_penalty": 1.0,
+      "buckets": {
+        "short": {
+          "n": 118,
+          "bleu": 11.78,
+          "chrf": 31.8257
+        },
+        "medium": {
+          "n": 119,
+          "bleu": 22.9673,
+          "chrf": 43.7051
+        },
+        "long": {
+          "n": 63,
+          "bleu": 21.162,
+          "chrf": 40.1216
+        }
+      }
+    },
+    "vi2zh": {
+      "n": 300,
+      "bleu": 19.4739,
+      "chrf": 21.3074,
+      "length_penalty": 0.9,
+      "buckets": {
+        "short": {
+          "n": 14,
+          "bleu": 1.6622,
+          "chrf": 7.3011
+        },
+        "medium": {
+          "n": 72,
+          "bleu": 10.0217,
+          "chrf": 14.2527
+        },
+        "long": {
+          "n": 214,
+          "bleu": 19.9024,
+          "chrf": 22.1427
+        }
+      }
+    }
+  }
+}

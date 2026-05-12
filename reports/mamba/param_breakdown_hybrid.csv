@@ -1,0 +1,6 @@
+component,params,% of total
+embedding (tied with lm_head),"6,144,000",18.73613087187414
+encoder (Bi-Mamba × N + FFN),"14,813,760",45.17456804435779
+decoder (Transformer × N),"11,833,728",36.08695906740908
+final norms,768,0.0023420163589842674
+TOTAL,"32,792,256",100.0

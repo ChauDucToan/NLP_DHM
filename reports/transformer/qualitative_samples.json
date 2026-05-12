@@ -1,0 +1,64 @@
+{
+  "model_kind": "transformer",
+  "checkpoint": "best_ema.pt",
+  "eval_label": "DRAFT METRICS",
+  "beam_size": 1,
+  "sample_seed": 42,
+  "max_decode_len": 256,
+  "length_penalty": {
+    "zh2vi": 1.0,
+    "vi2zh": 0.9
+  },
+  "zh2vi": [
+    {
+      "src": "你好，世界。",
+      "hyp": "Chào, thế giới."
+    },
+    {
+      "src": "今天天气真好。",
+      "hyp": "Thời tiết hôm nay rất tốt."
+    },
+    {
+      "src": "王小明已经在河内住了三年。",
+      "hyp": "Vương Mật Mật đã sống trong ba năm."
+    },
+    {
+      "src": "会议将于2025年6月12日上午9点开始，请提前十分钟到场。",
+      "hyp": "Cuộc họp sẽ bắt đầu vào lúc 9 giờ sáng ngày 12 tháng 6 năm 2025 và xin vui lòng lên đến 10 phút trước."
+    },
+    {
+      "src": "服务员说：'这道菜有点辣，如果你不能吃辣，我可以帮你换一份。'",
+      "hyp": "Người phục vụ nói: “Điều này hơi cay, nếu bạn không thể ăn cay, tôi có thể giúp bạn đổi một chút.”"
+    },
+    {
+      "src": "虽然模型在短句上表现不错，但一遇到包含数字、专有名词和转折结构的长句，错误就会明显增多。",
+      "hyp": "Mặc dù các mô hình hình có thể hoạt động tốt hơn, nhưng một câu hỏi có chứa các số, danh từ chuyên biệt và cấu trúc quay, sai lầm sẽ rõ ràng hơn."
+    }
+  ],
+  "vi2zh": [
+    {
+      "src": "Hôm nay trời rất đẹp.",
+      "hyp": "今天真是太好了"
+    },
+    {
+      "src": "Xin chào, tôi là Lan.",
+      "hyp": "你好,我是兰"
+    },
+    {
+      "src": "Anh Nguyễn Minh đã làm việc ở TP. Hồ Chí Minh từ năm 2021.",
+      "hyp": "阮明自2021年起在图波湖工作。"
+    },
+    {
+      "src": "Cuộc họp sẽ bắt đầu lúc 9 giờ sáng ngày 12 tháng 6 năm 2025, vui lòng đến sớm 10 phút.",
+      "hyp": "会议于2025年6月12日上午9时开始,高兴的10分钟前开始。"
+    },
+    {
+      "src": "Người phục vụ nói: 'Món này hơi cay, nếu bạn không ăn cay được thì tôi đổi món khác cho bạn.'",
+      "hyp": "服务员说:“这点有点可用,如果你不吃,我换下另一个菜肴给你。"
+    },
+    {
+      "src": "Mặc dù mô hình dịch khá ổn với câu ngắn, nó thường mắc nhiều lỗi hơn khi gặp câu dài có số liệu, tên riêng và cấu trúc tương phản.",
+      "hyp": "虽然这种模式与短句的正常情况相当不错,但长期患有材料、名字和反结构。"
+    }
+  ]
+}

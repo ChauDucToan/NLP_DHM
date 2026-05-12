@@ -1,0 +1,8 @@
+checkpoint,eval_label,num_samples,sample_seed,beam_size,max_decode_len,zh→vi BLEU,zh→vi chrF,vi→zh BLEU,vi→zh chrF
+latest,DRAFT METRICS,300,42,1,256,12.68,37.79,17.85,21.03
+latest_ema,DRAFT METRICS,300,42,1,256,,,,
+best,DRAFT METRICS,300,42,1,256,,,,
+best_ema,DRAFT METRICS,300,42,1,256,,,,
+avg_last5,DRAFT METRICS,300,42,1,256,,,,
+avg_last5_ema,DRAFT METRICS,300,42,1,256,,,,
+final,DRAFT METRICS,300,42,1,256,12.68,37.79,17.85,21.03

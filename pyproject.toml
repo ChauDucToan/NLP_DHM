@@ -20,6 +20,8 @@ dependencies = [
     "einops>=0.7",
     "sacrebleu>=2.4",
     "opencc>=1.1.6",
+    "certifi>=2026.4.22",
+    "matplotlib>=3.9.4",
 ]
 
 [project.optional-dependencies]

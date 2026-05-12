@@ -1,0 +1,4 @@
+model,checkpoint,params_M,size_MB,best_val_loss,best_step,avg_BLEU
+mamba,latest.pt,32.43,519.3,2.878,29000,15.27
+hybrid,avg_last5_ema.pt,32.79,418.3,2.863,33000,20.52
+transformer,best_ema.pt,30.79,369.6,2.765,41000,20.27

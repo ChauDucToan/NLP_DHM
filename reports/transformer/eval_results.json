@@ -1,0 +1,167 @@
+{
+  "_meta": {
+    "model_kind": "transformer",
+    "eval_label": "DRAFT METRICS",
+    "mode_slug": "draft",
+    "num_samples": 300,
+    "sample_seed": 42,
+    "beam_size": 1,
+    "max_decode_len": 256,
+    "length_penalty": {
+      "zh2vi": 1.0,
+      "vi2zh": 0.9
+    },
+    "length_buckets": true,
+    "full_eval_num_samples": 5000
+  },
+  "final": {
+    "zh2vi": {
+      "n": 300,
+      "bleu": 21.96,
+      "chrf": 40.58,
+      "beam": 1,
+      "lp": 1.0,
+      "buckets": {
+        "short": {
+          "n": 118,
+          "bleu": 14.2,
+          "chrf": 30.38
+        },
+        "medium": {
+          "n": 119,
+          "bleu": 24.87,
+          "chrf": 43.93
+        },
+        "long": {
+          "n": 63,
+          "bleu": 21.61,
+          "chrf": 40.95
+        }
+      }
+    },
+    "vi2zh": {
+      "n": 300,
+      "bleu": 18.89,
+      "chrf": 21.69,
+      "beam": 1,
+      "lp": 0.9,
+      "buckets": {
+        "short": {
+          "n": 14,
+          "bleu": 11.33,
+          "chrf": 14.38
+        },
+        "medium": {
+          "n": 72,
+          "bleu": 15.93,
+          "chrf": 15.54
+        },
+        "long": {
+          "n": 214,
+          "bleu": 19.19,
+          "chrf": 22.22
+        }
+      }
+    }
+  },
+  "best": {
+    "zh2vi": {
+      "n": 300,
+      "bleu": 21.49,
+      "chrf": 40.34,
+      "beam": 1,
+      "lp": 1.0,
+      "buckets": {
+        "short": {
+          "n": 118,
+          "bleu": 15.52,
+          "chrf": 31.04
+        },
+        "medium": {
+          "n": 119,
+          "bleu": 24.55,
+          "chrf": 43.88
+        },
+        "long": {
+          "n": 63,
+          "bleu": 20.51,
+          "chrf": 40.22
+        }
+      }
+    },
+    "vi2zh": {
+      "n": 300,
+      "bleu": 18.08,
+      "chrf": 21.45,
+      "beam": 1,
+      "lp": 0.9,
+      "buckets": {
+        "short": {
+          "n": 14,
+          "bleu": 7.96,
+          "chrf": 12.58
+        },
+        "medium": {
+          "n": 72,
+          "bleu": 16.2,
+          "chrf": 14.64
+        },
+        "long": {
+          "n": 214,
+          "bleu": 18.3,
+          "chrf": 22.05
+        }
+      }
+    }
+  },
+  "best_ema": {
+    "zh2vi": {
+      "n": 300,
+      "bleu": 21.97,
+      "chrf": 40.77,
+      "beam": 1,
+      "lp": 1.0,
+      "buckets": {
+        "short": {
+          "n": 118,
+          "bleu": 15.53,
+          "chrf": 31.01
+        },
+        "medium": {
+          "n": 119,
+          "bleu": 24.75,
+          "chrf": 44.14
+        },
+        "long": {
+          "n": 63,
+          "bleu": 21.42,
+          "chrf": 41.0
+        }
+      }
+    },
+    "vi2zh": {
+      "n": 300,
+      "bleu": 18.57,
+      "chrf": 21.45,
+      "beam": 1,
+      "lp": 0.9,
+      "buckets": {
+        "short": {
+          "n": 14,
+          "bleu": 8.14,
+          "chrf": 12.85
+        },
+        "medium": {
+          "n": 72,
+          "bleu": 15.28,
+          "chrf": 15.49
+        },
+        "long": {
+          "n": 214,
+          "bleu": 18.92,
+          "chrf": 21.98
+        }
+      }
+    }
+  }
+}

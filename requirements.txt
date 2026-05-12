@@ -3,6 +3,7 @@ torch>=2.1
 numpy>=1.24
 pyyaml>=6.0
 tqdm>=4.65
+certifi>=2024.0.0
 
 # Tokenization
 sentencepiece>=0.2.0

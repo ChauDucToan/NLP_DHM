@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mt_base.data import read_jsonl
 from mt_base.evaluator import DEFAULT_LENGTH_BUCKETS, evaluate
+from mt_base.eval_utils import select_eval_subset
 from mt_base.tokenizer import Tokenizer
 from mt_base.utils import get_device, load_yaml
 
@@ -66,6 +67,12 @@ def parse_args() -> argparse.Namespace:
         help="Path to the checkpoint to sweep (e.g. runs/bi_mamba_55m/best_ema.pt).",
     )
     p.add_argument("--num-samples", type=int, default=None)
+    p.add_argument(
+        "--sample-seed",
+        type=int,
+        default=None,
+        help="If set, sweep on a reproducible random subset instead of the first N pairs.",
+    )
     p.add_argument(
         "--beams",
         type=int,
@@ -97,6 +104,12 @@ def parse_args() -> argparse.Namespace:
         "--length-buckets",
         action="store_true",
         help="Also emit per-length-bucket rows (short/medium/long).",
+    )
+    p.add_argument(
+        "--max-decode-len",
+        type=int,
+        default=None,
+        help="Override max decode length for the whole sweep.",
     )
     p.add_argument("--out", type=Path, required=True, help="Output CSV path.")
     return p.parse_args()
@@ -202,8 +215,17 @@ def main() -> None:
         Path(args.checkpoint), cfg, device, model_kind=args.model_kind
     )
     n = args.num_samples or int(cfg["eval"].get("num_samples", 1000))
-    test_pairs = test_pairs[:n]
-    max_len = int(cfg["eval"].get("max_decode_len", 256))
+    test_pairs, subset_meta = select_eval_subset(
+        test_pairs,
+        num_samples=n,
+        sample_seed=args.sample_seed,
+    )
+    print(
+        f"Sweep subset: {subset_meta['subset_kind']} "
+        f"({subset_meta['num_selected_pairs']}/{subset_meta['num_total_pairs']}, "
+        f"seed={subset_meta['sample_seed']})"
+    )
+    max_len = args.max_decode_len or int(cfg["eval"].get("max_decode_len", 256))
     length_buckets = list(DEFAULT_LENGTH_BUCKETS) if args.length_buckets else None
 
     rows: List[dict] = []

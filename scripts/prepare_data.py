@@ -43,11 +43,13 @@ import contextlib
 import io
 import json
 import random
+import ssl
 import sys
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 # Make ``src/`` importable when running as a script.
@@ -55,6 +57,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bi_mamba_mt.data import Pair, basic_clean, pair_ok, write_jsonl
 from bi_mamba_mt.utils import load_yaml
+
+try:
+    import certifi  # type: ignore
+except ImportError:  # pragma: no cover
+    certifi = None
 
 # Optional Traditional→Simplified normalization (recommended for zh-vi corpora
 # because OPUS zh-vi sources are heterogeneous: TED2020 is Cantonese in
@@ -164,14 +171,48 @@ PRESETS: dict[str, list[str]] = {
 # ---------------------------------------------------------------------
 # Download + parse
 # ---------------------------------------------------------------------
-def download(url: str, dest: Path, timeout: int = 300) -> None:
+def _ssl_context(*, insecure: bool = False) -> ssl.SSLContext:
+    if insecure:
+        return ssl._create_unverified_context()
+    if certifi is not None:
+        return ssl.create_default_context(cafile=certifi.where())
+    return ssl.create_default_context()
+
+
+def _is_valid_zip(path: Path) -> bool:
+    try:
+        return zipfile.is_zipfile(path)
+    except OSError:
+        return False
+
+
+def download(
+    url: str,
+    dest: Path,
+    timeout: int = 300,
+    *,
+    insecure: bool = False,
+) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() and dest.stat().st_size > 0:
+        if not _is_valid_zip(dest):
+            print(f"  cache corrupt: {dest} is not a valid zip; deleting and re-downloading")
+            dest.unlink()
+        else:
+            print(f"  cache hit:   {dest}")
+            return
     if dest.exists() and dest.stat().st_size > 0:
         print(f"  cache hit:   {dest}")
         return
     print(f"  downloading: {url}")
+    if insecure:
+        print("  WARNING: SSL verification disabled for this download.")
+    elif certifi is not None:
+        print(f"  SSL CA bundle: {certifi.where()}")
+    else:
+        print("  SSL CA bundle: system default (install `certifi` if cert errors persist)")
     req = Request(url, headers={"User-Agent": "bi-mamba-mt/0.1"})
-    with urlopen(req, timeout=timeout) as r, open(dest, "wb") as f:
+    with urlopen(req, timeout=timeout, context=_ssl_context(insecure=insecure)) as r, open(dest, "wb") as f:
         total = int(r.headers.get("content-length", 0))
         read = 0
         last_pct = -10
@@ -187,6 +228,13 @@ def download(url: str, dest: Path, timeout: int = 300) -> None:
                 if pct >= last_pct + 5:
                     print(f"    {pct:3d}%  ({read/1e6:.1f} / {total/1e6:.1f} MB)")
                     last_pct = pct
+    if not _is_valid_zip(dest):
+        bad_size = dest.stat().st_size if dest.exists() else 0
+        with contextlib.suppress(FileNotFoundError):
+            dest.unlink()
+        raise zipfile.BadZipFile(
+            f"Downloaded file is not a valid zip: {dest} ({bad_size} bytes)"
+        )
     print(f"  saved:       {dest}  ({dest.stat().st_size/1e6:.1f} MB)")
 
 
@@ -301,6 +349,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to custom JSONL with {'zh': ..., 'vi': ...}. Skips OPUS download.",
     )
+    p.add_argument(
+        "--insecure-download",
+        action="store_true",
+        help="Disable SSL certificate verification for OPUS downloads. "
+             "Only use if the runtime CA store is broken.",
+    )
     p.add_argument("--out-dir", default=None, help="Override config.data.processed_dir.")
     p.add_argument("--cache-dir", default=None, help="Override config.data.raw_dir for downloads.")
     return p.parse_args()
@@ -391,7 +445,26 @@ def main() -> None:
             print(f"\n[{src.name}]")
             zip_path = cache_dir / f"{key}.zip"
             try:
-                download(src.url, zip_path)
+                download(src.url, zip_path, insecure=args.insecure_download)
+            except ssl.SSLCertVerificationError as e:
+                print(
+                    "  ERROR: SSL certificate verify failed. "
+                    "Try `pip install -r requirements.txt` to get certifi, "
+                    "or rerun with `--insecure-download` if this runtime has a broken CA store."
+                )
+                print(f"         details: {e}")
+                continue
+            except URLError as e:
+                if isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError):
+                    print(
+                        "  ERROR: SSL certificate verify failed. "
+                        "Try `pip install -r requirements.txt` to get certifi, "
+                        "or rerun with `--insecure-download` if this runtime has a broken CA store."
+                    )
+                    print(f"         details: {e.reason}")
+                    continue
+                print(f"  ERROR: download failed ({e}); skipping {key}")
+                continue
             except Exception as e:
                 print(f"  ERROR: download failed ({e}); skipping {key}")
                 continue

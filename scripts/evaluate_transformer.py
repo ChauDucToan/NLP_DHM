@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -17,6 +18,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mt_base.data import read_jsonl
 from mt_base.evaluator import DEFAULT_LENGTH_BUCKETS, evaluate
+from mt_base.eval_utils import (
+    device_info,
+    infer_eval_label,
+    select_eval_subset,
+    write_json,
+)
 from mt_base.tokenizer import Tokenizer
 from mt_base.utils import get_device, load_yaml
 from transformer_mt.model import ModelConfig, TransformerTranslator
@@ -32,7 +39,19 @@ def parse_args() -> argparse.Namespace:
              "Pass an averaged or EMA checkpoint to get the best BLEU.",
     )
     p.add_argument("--num-samples", type=int, default=None)
+    p.add_argument(
+        "--sample-seed",
+        type=int,
+        default=None,
+        help="If set, evaluate a reproducible random subset instead of the first N pairs.",
+    )
     p.add_argument("--beam-size", type=int, default=None)
+    p.add_argument(
+        "--max-decode-len",
+        type=int,
+        default=None,
+        help="Override max decode length for reporting and controlled ablations.",
+    )
     p.add_argument(
         "--length-penalty",
         type=float,
@@ -57,6 +76,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also print per-length-bucket BLEU/chrF breakdown "
              "(short: <20 src chars, medium: 20–50, long: ≥50).",
+    )
+    p.add_argument(
+        "--runtime-out",
+        type=Path,
+        default=None,
+        help="Optional JSON file for runtime metadata, device info, and decoded scores.",
     )
     return p.parse_args()
 
@@ -101,21 +126,51 @@ def main() -> None:
         print(f"  (averaged from {ckpt['averaged_n']} checkpoints)")
 
     tokenizer = Tokenizer(Path(cfg["data"]["tokenizer_dir"]) / "spm.model")
-    test_pairs = read_jsonl(Path(cfg["data"]["processed_dir"]) / "test.jsonl")
+    test_pairs_all = read_jsonl(Path(cfg["data"]["processed_dir"]) / "test.jsonl")
     n = args.num_samples or int(cfg["eval"].get("num_samples", 1000))
-    test_pairs = test_pairs[:n]
+    test_pairs, subset_meta = select_eval_subset(
+        test_pairs_all,
+        num_samples=n,
+        sample_seed=args.sample_seed,
+    )
 
     beam = args.beam_size or int(cfg["eval"].get("beam_size", 4))
-    max_len = int(cfg["eval"].get("max_decode_len", 256))
+    max_len = args.max_decode_len or int(cfg["eval"].get("max_decode_len", 256))
+    eval_label = infer_eval_label(
+        num_total_pairs=subset_meta["num_total_pairs"],
+        num_selected_pairs=subset_meta["num_selected_pairs"],
+        beam_size=beam,
+    )
+    print(
+        f"Eval mode: {eval_label} | subset={subset_meta['subset_kind']} "
+        f"({subset_meta['num_selected_pairs']}/{subset_meta['num_total_pairs']}, "
+        f"seed={subset_meta['sample_seed']}) | beam={beam} | max_len={max_len}"
+    )
 
     per_dir = {
         "zh2vi": args.length_penalty_zh2vi,
         "vi2zh": args.length_penalty_vi2zh,
     }
     buckets = list(DEFAULT_LENGTH_BUCKETS) if args.length_buckets else None
+    runtime_payload: dict[str, Any] = {
+        "model_kind": "transformer",
+        "checkpoint": str(ckpt_path),
+        "eval_label": eval_label,
+        "config_path": args.config,
+        "beam_size": beam,
+        "max_decode_len": max_len,
+        "length_buckets": bool(args.length_buckets),
+        "directions": list(args.directions),
+        "subset": subset_meta,
+        "device": device_info(device),
+        "timings_sec": {},
+        "results": {},
+    }
 
+    t0 = time.perf_counter()
     for d in args.directions:
         lp = _resolve_length_penalty(cfg["eval"], d, args.length_penalty, per_dir)
+        t_dir = time.perf_counter()
         res = evaluate(
             model,
             tokenizer,
@@ -127,6 +182,21 @@ def main() -> None:
             device=device,
             length_buckets=buckets,
         )
+        runtime_payload["timings_sec"][d] = round(time.perf_counter() - t_dir, 3)
+        runtime_payload["results"][d] = {
+            "n": res.n,
+            "bleu": round(res.bleu, 4),
+            "chrf": round(res.chrf, 4),
+            "length_penalty": lp,
+            "buckets": {
+                name: {
+                    "n": b.n,
+                    "bleu": round(b.bleu, 4),
+                    "chrf": round(b.chrf, 4),
+                }
+                for name, b in res.buckets.items()
+            },
+        }
         print(
             f"[{d}] n={res.n} BLEU={res.bleu:.2f} chrF={res.chrf:.2f} "
             f"(beam={beam}, lp={lp:.2f})"
@@ -136,6 +206,10 @@ def main() -> None:
                 f"    bucket={name:<6} n={b.n:<5} "
                 f"BLEU={b.bleu:.2f} chrF={b.chrf:.2f}"
             )
+    runtime_payload["timings_sec"]["total"] = round(time.perf_counter() - t0, 3)
+    if args.runtime_out is not None:
+        write_json(args.runtime_out, runtime_payload)
+        print(f"Saved runtime metadata to {args.runtime_out}")
 
 
 if __name__ == "__main__":

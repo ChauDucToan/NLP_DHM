@@ -1,0 +1,13 @@
+metric,value
+train pairs,125279
+valid pairs,5000
+test pairs,5000
+total,135279
+zh char-length mean,32.8
+zh char-length p95,81
+vi char-length mean,98.4
+vi char-length p95,226
+zh/vi ratio mean,0.344
+preset,everyday
+max_pairs_per_source,"{'opensubtitles': 20000, 'wikimatrix': 100000, 'nllb': 20000, 'bible_uedin': 6000}"
+config max_train_pairs,400000

@@ -1,0 +1,64 @@
+{
+  "model_kind": "hybrid",
+  "checkpoint": "avg_last5_ema.pt",
+  "eval_label": "DRAFT METRICS",
+  "beam_size": 1,
+  "sample_seed": 42,
+  "max_decode_len": 256,
+  "length_penalty": {
+    "zh2vi": 1.0,
+    "vi2zh": 0.9
+  },
+  "zh2vi": [
+    {
+      "src": "你好，世界。",
+      "hyp": "Xin chào, thế giới."
+    },
+    {
+      "src": "今天天气真好。",
+      "hyp": "Thời tiết tuyệt vời."
+    },
+    {
+      "src": "王小明已经在河内住了三年。",
+      "hyp": "Hoàng Hùng Minh đã sống trong một thời gian ngắn trong sông trong ba năm."
+    },
+    {
+      "src": "会议将于2025年6月12日上午9点开始，请提前十分钟到场。",
+      "hyp": "Cuộc họp sẽ bắt đầu từ 9h sáng ngày 12 tháng 6 năm 2025 và đến 10 phút trước khi đến nơi."
+    },
+    {
+      "src": "服务员说：'这道菜有点辣，如果你不能吃辣，我可以帮你换一份。'",
+      "hyp": "Nhân viên dịch vụ nói: \"Thông này hơi mặn, nếu không thể nóng nực, ta có thể giúp ngươi đổi bản sao.\""
+    },
+    {
+      "src": "虽然模型在短句上表现不错，但一遇到包含数字、专有名词和转折结构的长句，错误就会明显增多。",
+      "hyp": "Mặc dù mô hình tốt trong các từ ngắn, một gặp phải các chữ số, danh từ độc lập và cấu trúc thay đổi thì sai số hơn."
+    }
+  ],
+  "vi2zh": [
+    {
+      "src": "Hôm nay trời rất đẹp.",
+      "hyp": "’天好美。"
+    },
+    {
+      "src": "Xin chào, tôi là Lan.",
+      "hyp": "你好,我是兰,我也是"
+    },
+    {
+      "src": "Anh Nguyễn Minh đã làm việc ở TP. Hồ Chí Minh từ năm 2021.",
+      "hyp": "阮明从2021年就任于多国杜马县市。"
+    },
+    {
+      "src": "Cuộc họp sẽ bắt đầu lúc 9 giờ sáng ngày 12 tháng 6 năm 2025, vui lòng đến sớm 10 phút.",
+      "hyp": "会议于2025年6月12日上午9点开始,请早至10分钟。"
+    },
+    {
+      "src": "Người phục vụ nói: 'Món này hơi cay, nếu bạn không ăn cay được thì tôi đổi món khác cho bạn.'",
+      "hyp": "服务员说:“这有点点,如果你不吃花,我换其他料理。"
+    },
+    {
+      "src": "Mặc dù mô hình dịch khá ổn với câu ngắn, nó thường mắc nhiều lỗi hơn khi gặp câu dài có số liệu, tên riêng và cấu trúc tương phản.",
+      "hyp": "虽然翻译模型非常稳定,但通常在数据的长度、姓名和相对论的结构中犯了更多的错误。"
+    }
+  ]
+}

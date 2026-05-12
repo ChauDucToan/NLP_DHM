@@ -1,0 +1,10 @@
+{
+  "python": "3.12.13",
+  "platform": "Linux-6.19.13-xanmod1-x86_64-with-glibc2.42",
+  "torch": "2.11.0+cu130",
+  "cuda_available": true,
+  "cuda_version": "13.0",
+  "cudnn_version": 91900,
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "gpu_capability": "12.0"
+}

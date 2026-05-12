@@ -1,0 +1,7 @@
+source,mamba,hybrid,transformer
+你好，世界。,"Chào, thế giới.","Xin chào, thế giới.","Chào, thế giới."
+今天天气真好。,Thời tiết hôm nay rất tốt.,Thời tiết tuyệt vời.,Thời tiết hôm nay rất tốt.
+王小明已经在河内住了三年。,Hoàng Minh Hoàng Hàm Mạnh đã sống ở Hà Nội trong 3 năm.,Hoàng Hùng Minh đã sống trong một thời gian ngắn trong sông trong ba năm.,Vương Mật Mật đã sống trong ba năm.
+会议将于2025年6月12日上午9点开始，请提前十分钟到场。,Hội nghị sẽ bắt đầu lúc 9h sáng ngày 12 tháng 6 năm 2025 để có thể lên đến 10 phút trước.,Cuộc họp sẽ bắt đầu từ 9h sáng ngày 12 tháng 6 năm 2025 và đến 10 phút trước khi đến nơi.,Cuộc họp sẽ bắt đầu vào lúc 9 giờ sáng ngày 12 tháng 6 năm 2025 và xin vui lòng lên đến 10 phút trước.
+服务员说：'这道菜有点辣，如果你不能吃辣，我可以帮你换一份。',"Nhân viên nói: “Điều này hơi hôi, nếu em không thể nóng, em có thể giúp em đổi lấy nó.”","Nhân viên dịch vụ nói: ""Thông này hơi mặn, nếu không thể nóng nực, ta có thể giúp ngươi đổi bản sao.""","Người phục vụ nói: “Điều này hơi cay, nếu bạn không thể ăn cay, tôi có thể giúp bạn đổi một chút.”"
+虽然模型在短句上表现不错，但一遇到包含数字、专有名词和转折结构的长句，错误就会明显增多。,"Mặc dù mô hình đã được biểu diễn tốt, một câu nói được bao gồm số, từ, và cấu trúc quay, sai lầm sẽ trở nên rõ ràng.","Mặc dù mô hình tốt trong các từ ngắn, một gặp phải các chữ số, danh từ độc lập và cấu trúc thay đổi thì sai số hơn.","Mặc dù các mô hình hình có thể hoạt động tốt hơn, nhưng một câu hỏi có chứa các số, danh từ chuyên biệt và cấu trúc quay, sai lầm sẽ rõ ràng hơn."

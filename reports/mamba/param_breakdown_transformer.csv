@@ -1,0 +1,6 @@
+component,params,% of total
+embedding (tied with lm_head),"6,144,000",19.95576472153393
+encoder (Transformer × N),"10,841,728",35.21402557663845
+decoder (Transformer × N),"13,802,368",44.83020970182761
+final norms,0,0.0
+TOTAL,"30,788,096",100.0

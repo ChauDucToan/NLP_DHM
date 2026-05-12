@@ -1,0 +1,6 @@
+source,zip,raw,after_filter,after_cap,cap
+ted2020,ted2020.zip,15994,15424,15424,
+wikimatrix,wikimatrix.zip,89445,81905,81905,100000.0
+bible_uedin,bible_uedin.zip,124396,120680,6000,6000.0
+opensubtitles,opensubtitles.zip,1777340,1585394,20000,20000.0
+nllb,nllb.zip,8045074,7179657,20000,20000.0
